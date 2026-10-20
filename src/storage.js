@@ -16,7 +16,7 @@ export function emptyProfile() {
     progress: {},
     retrainingKeys: {},
     fingerMarks: {},
-    settings: { colors: true, letters: true, hands: false },
+    settings: { colors: true, letters: true, hands: false, hintMode: 'auto' },
   };
 }
 
@@ -66,6 +66,13 @@ function readSettings(settings) {
       'Настройки должны содержать переключатели true/false.',
     );
     result[key] = settings[key];
+  }
+  if (settings.hintMode !== undefined) {
+    requireValid(
+      ['auto', 'always', 'off'].includes(settings.hintMode),
+      'Некорректный режим подсказок.',
+    );
+    result.hintMode = settings.hintMode;
   }
   return result;
 }
