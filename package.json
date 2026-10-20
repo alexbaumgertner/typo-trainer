@@ -1,0 +1,11 @@
+{
+  "name": "ritm-touch-typing",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Russian and English touch typing tutor with progressive lessons",
+  "scripts": {
+    "test": "node tests/verify.mjs && node tests/storage.mjs",
+    "dev": "python -m http.server 4173 --directory dist"
+  }
+}
