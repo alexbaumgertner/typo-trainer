@@ -134,6 +134,20 @@ export function drill(keys, count = 24) {
     return [a + a, a + b, b + a, a + b + a][i % 4];
   }).join(' ');
 }
+const homeColumns = [0, 1, 2, 3, 6, 7, 8, 9];
+export function homePosition(language) {
+  return homeColumns.map((col) => language.rows[2][col]).join(' ');
+}
+export function retrainingDrill(language, keys) {
+  const homes = homeColumns.map((col) => language.rows[2][col]);
+  return Array.from({ length: keys.length * 2 }, (_, index) => {
+    const key = keys[index % keys.length];
+    const finger = keyInfo(language, key)?.finger;
+    if (finger === undefined || finger === 8) throw new Error('Неизвестная клавиша упражнения.');
+    const home = homes[finger];
+    return home + key + home;
+  }).join(' ');
+}
 export function lessonsFor(l) {
   if (l.custom) {
     const home = l.rows[2];
@@ -203,11 +217,14 @@ export class TypingSession {
     this.errors = 0;
     this.wrong = false;
     this.mistakes = {};
+    this.fingerMarks = {};
+    this.retry = null;
     this.elapsed = 0;
     this.started = null;
     this.status = 'ready';
   }
   start(now = performance.now()) {
+    this.retry = null;
     this.status = 'running';
     if (this.attempts) this.started = now;
   }
@@ -242,6 +259,21 @@ export class TypingSession {
       if (this.wrong) this.wrong = false;
       else this.position = Math.max(0, this.position - 1);
     }
+  }
+  markWrongFinger(now = performance.now()) {
+    if (this.status !== 'running' || this.wrong || this.position === 0) return null;
+    let last = this.position - 1;
+    while (last > 0 && this.text[last] === ' ') last--;
+    const from = this.text.lastIndexOf(' ', last - 1) + 1;
+    const nextSpace = this.text.indexOf(' ', last);
+    const to = nextSpace < 0 ? this.text.length : nextSpace;
+    const key = this.text[last];
+    const combo = this.text.slice(from, to);
+    this.fingerMarks[key] = (this.fingerMarks[key] || 0) + 1;
+    this.retry = { key, combo };
+    this.position = from;
+    this.pause(now);
+    return this.retry;
   }
   accuracy() {
     return this.attempts

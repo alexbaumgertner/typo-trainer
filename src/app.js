@@ -7,6 +7,8 @@ import {
   keyInfo,
   lessonsFor,
   drill,
+  retrainingDrill,
+  homePosition,
   TypingSession,
 } from './course.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
@@ -47,7 +49,8 @@ let view = 'learn',
   sessionKind = 'lesson',
   sessionTitle = '',
   sessionLesson = null,
-  customText = '';
+  customText = '',
+  retrainingSetup = false;
 function language() {
   return languages[languageId];
 }
@@ -188,25 +191,39 @@ function hands() {
   </div>`;
 }
 function keyMarkup(char, row, col) {
+  const choosing = view === 'practice' && retrainingSetup && !session;
+  const selected = (data.retrainingKeys[languageId] || []).includes(char);
   const f = zoneRows[row][col],
     next = session?.text[session.position],
-    info = keyInfo(language(), next || lesson().text[0]);
+    info = keyInfo(language(), next || (view === 'learn' ? lesson().text[0] : ''));
   const isNext = info?.row === row && info?.col === col;
-  return html`<div
-    class="key ${fingerClasses[f]} ${row === 2 && [3, 6].includes(col) ? 'home' : ''} ${isNext
-      ? 'next'
-      : ''}"
-    data-key="${row}-${col}"
-    title="${esc(char)} · ${esc(fingers[f])}"
-  >
-    <span class="shift-label"
+  const classes = `key ${fingerClasses[f]} ${row === 2 && [3, 6].includes(col) ? 'home' : ''} ${isNext ? 'next' : ''} ${choosing && selected ? 'selected' : ''}`;
+  const label = html`<span class="shift-label"
       >${esc(
         language().shift[row]?.[col] === char.toUpperCase()
           ? ''
           : language().shift[row]?.[col] || '',
       )}</span
-    >${esc(char.toUpperCase())}
-  </div>`;
+    >${esc(char.toUpperCase())}`;
+  return choosing
+    ? html`<button
+        type="button"
+        class="${classes}"
+        data-key="${row}-${col}"
+        data-retraining-key="${esc(char)}"
+        aria-pressed="${selected}"
+        aria-label="${esc(char.toUpperCase())}, ${esc(fingers[f])}${selected ? ', выбрана' : ''}"
+        title="${esc(char)} · ${esc(fingers[f])}"
+      >
+        ${label}
+      </button>`
+    : html`<div
+        class="${classes}"
+        data-key="${row}-${col}"
+        title="${esc(char)} · ${esc(fingers[f])}"
+      >
+        ${label}
+      </div>`;
 }
 function keyboard() {
   return html`<section class="keyboard-card" aria-label="Подсказка клавиатуры">
@@ -475,7 +492,11 @@ function trainingMarkup() {
       </div>
       <div class="live-stat"><span>ТОЧНОСТЬ</span><b id="live-accuracy">100%</b></div>
       <div class="live-stat"><span>ВРЕМЯ</span><b id="live-time">0:00</b></div>
-      <div class="live-stat"><span>ЦЕЛЬ</span><b>95%</b><small>точности</small></div>
+      <div class="live-stat">
+        ${sessionKind === 'retraining'
+          ? '<span>ДРУГИМ ПАЛЬЦЕМ</span><b id="live-finger-marks">0</b><small>самопроверка</small>'
+          : '<span>ЦЕЛЬ</span><b>95%</b><small>точности</small>'}
+      </div>
     </div>
     <section class="typing-card">
       <div class="typing-top">
@@ -500,10 +521,48 @@ function trainingMarkup() {
       ></textarea>
       <div class="typing-message">
         <span id="typing-feedback" role="status">Нажмите «Начать», затем печатайте текст выше.</span
-        ><button class="text-button" data-action="pause" id="pause-button">Начать →</button>
+        >${sessionKind === 'retraining'
+          ? '<button class="secondary" data-action="mark-finger" aria-keyshortcuts="F2">Нажал другим пальцем · F2</button>'
+          : ''}<button class="text-button" data-action="pause" id="pause-button">Начать →</button>
       </div>
       <div id="pause-cover"></div>
     </section>`;
+}
+function retrainingSetupMarkup() {
+  const keys = data.retrainingKeys[languageId] || [];
+  const homes = [0, 1, 2, 3, 6, 7, 8, 9].map((col) => language().rows[2][col]);
+  return html`<section class="practice-form retraining-setup">
+      <h2>Переучиваюсь</h2>
+      <p>
+        Выберите до 8 проблемных клавиш на клавиатуре ниже. Каждая кнопка показывает назначенные
+        руку и палец; повторное нажатие снимает выбор. Для каждой клавиши упражнение добавит
+        возвращение в исходную позицию.
+      </p>
+      <p class="form-note">
+        Браузер не видит, каким пальцем вы нажали клавишу. Отмечайте привычное движение сами кнопкой
+        или клавишей F2 во время набора.
+      </p>
+      <div id="retraining-selection" aria-live="polite">
+        ${keys.length
+          ? html`<ul class="retraining-keys">
+              ${keys
+                .map((key) => {
+                  const finger = keyInfo(language(), key).finger;
+                  return html`<li>
+                    <strong>${esc(key.toUpperCase())}</strong> · ${esc(fingers[finger])} · исходная
+                    ${esc(homes[finger].toUpperCase())}
+                  </li>`;
+                })
+                .join('')}
+            </ul>`
+          : '<p>Пока не выбрана ни одна клавиша.</p>'}
+      </div>
+      <button class="primary" data-action="start-retraining" ${keys.length ? '' : 'disabled'}>
+        Начать короткое упражнение →
+      </button>
+      <button class="text-button" data-action="retraining-close">Другие виды практики</button>
+    </section>
+    ${keyboard()}`;
 }
 function practicePage() {
   return html`<div class="breadcrumb">
@@ -518,41 +577,53 @@ function practicePage() {
     </div>
     <p class="subtitle">Закрепите трудные клавиши или потренируйтесь на своём тексте.</p>
     ${session
-      ? html`${trainingMarkup()}${keyboard()}
+      ? html`${sessionKind === 'retraining'
+            ? '<p class="form-note">Самопроверка: нажмите F2 сразу после клавиши, которую нажали не тем пальцем. Занятие остановится и предложит повторить сочетание.</p>'
+            : ''}${trainingMarkup()}${keyboard()}
           <div class="row-actions">
-            <button class="secondary" data-action="new-practice">Выбрать другой текст</button
+            <button
+              class="secondary"
+              data-action="${sessionKind === 'retraining' ? 'retraining-open' : 'new-practice'}"
+            >
+              ${sessionKind === 'retraining' ? 'Выбрать клавиши' : 'Выбрать другой текст'}</button
             ><button class="text-button" data-action="repeat">Начать заново</button>
           </div>`
-      : html`<div class="choice-grid">
-            <button class="choice" data-action="practice-sample">
-              <strong>Текст для разминки ↗</strong
-              ><span
-                >Спокойная практика на
-                ${esc(language().name === 'English' ? 'английском' : 'выбранном языке')}</span
-              ></button
-            ><button class="choice" data-action="practice-weak">
-              <strong>Трудные клавиши ↗</strong
-              ><span>Упражнение на основе ваших последних ошибок</span>
-            </button>
-          </div>
-          <form id="practice-form" class="practice-form">
-            <label class="field"
-              >Ваш текст<textarea
-                id="custom-text"
-                maxlength="3000"
-                placeholder="Вставьте текст, который хотите научиться печатать…"
-              >
+      : retrainingSetup
+        ? retrainingSetupMarkup()
+        : html`<div class="choice-grid">
+              <button class="choice" data-action="practice-sample">
+                <strong>Текст для разминки ↗</strong
+                ><span
+                  >Спокойная практика на
+                  ${esc(language().name === 'English' ? 'английском' : 'выбранном языке')}</span
+                ></button
+              ><button class="choice" data-action="practice-weak">
+                <strong>Трудные клавиши ↗</strong
+                ><span>Упражнение на основе ваших последних ошибок</span>
+              </button>
+              <button class="choice" data-action="retraining-open">
+                <strong>Переучиваюсь ↗</strong
+                ><span>Выберите клавиши и проверяйте, каким пальцем их нажимаете</span>
+              </button>
+            </div>
+            <form id="practice-form" class="practice-form">
+              <label class="field"
+                >Ваш текст<textarea
+                  id="custom-text"
+                  maxlength="3000"
+                  placeholder="Вставьте текст, который хотите научиться печатать…"
+                >
 ${esc(customText)}</textarea
-              >
-            </label>
-            <p class="form-note">
-              До 3000 символов. Переносы строк будут заменены пробелами. Выберите раскладку
-              ${esc(language().layout)} в операционной системе.
-            </p>
-            <p id="practice-error" class="form-error" role="alert"></p>
-            <button class="primary" type="submit">Начать тренировку <span>→</span></button>
-          </form>
-          ${keyboard()}`}`;
+                >
+              </label>
+              <p class="form-note">
+                До 3000 символов. Переносы строк будут заменены пробелами. Выберите раскладку
+                ${esc(language().layout)} в операционной системе.
+              </p>
+              <p id="practice-error" class="form-error" role="alert"></p>
+              <button class="primary" type="submit">Начать тренировку <span>→</span></button>
+            </form>
+            ${keyboard()}`}`;
 }
 function progressPage() {
   const history = data.history.filter((h) => h.language === languageId),
@@ -614,6 +685,7 @@ function progressPage() {
                     <th>Занятие</th>
                     <th>Скорость</th>
                     <th>Точность</th>
+                    <th>Другим пальцем</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -633,6 +705,9 @@ function progressPage() {
                           <td>${h.speed} зн/мин</td>
                           <td style="color:${h.accuracy >= 95 ? '#509c87' : '#bf8b64'}">
                             ${h.accuracy}%
+                          </td>
+                          <td>
+                            ${Object.values(h.fingerMarks || {}).reduce((sum, n) => sum + n, 0)}
                           </td>
                         </tr>`,
                     )
@@ -710,28 +785,51 @@ function renderTyping() {
   }
   $('#typing-count').textContent = `${session.position} / ${session.text.length} символов`;
   $('#live-accuracy').textContent = `${session.accuracy()}%`;
+  if ($('#live-finger-marks'))
+    $('#live-finger-marks').textContent = Object.values(session.fingerMarks).reduce(
+      (sum, n) => sum + n,
+      0,
+    );
   $('#pause-button').textContent =
     session.status === 'running'
       ? 'Пауза · Esc'
       : session.status === 'ready'
         ? 'Начать →'
-        : 'Продолжить →';
+        : session.retry
+          ? 'Повторить сочетание →'
+          : 'Продолжить →';
   let feedback = session.wrong
     ? 'Ошибка. Нажмите Backspace и попробуйте ещё раз.'
-    : session.status === 'running'
-      ? 'Печатайте в своём темпе. Смотрите на экран.'
-      : session.status === 'paused'
-        ? 'Пауза. Время остановлено.'
-        : 'Нажмите «Начать», затем печатайте текст выше.';
+    : session.retry
+      ? `Отметили «${session.retry.key.toUpperCase()}»: проверьте исходную позицию и повторите «${session.retry.combo.toUpperCase()}».`
+      : session.status === 'running'
+        ? 'Печатайте в своём темпе. Смотрите на экран.'
+        : session.status === 'paused'
+          ? 'Пауза. Время остановлено.'
+          : 'Нажмите «Начать», затем печатайте текст выше.';
   if (session.wrong && /[a-z]/i.test(session.lastWrong || '') && languageId === 'ru')
     feedback += ' Проверьте русскую раскладку.';
   if (session.wrong && /[а-яё]/i.test(session.lastWrong || '') && languageId === 'en')
     feedback += ' Проверьте английскую раскладку.';
   $('#typing-feedback').textContent = feedback;
   $('#typing-feedback').parentElement.classList.toggle('error', session.wrong);
+  const homeKeys = homePosition(language()).toUpperCase().split(' ');
   $('#pause-cover').innerHTML =
     session.status === 'paused'
-      ? '<div class="pause-cover"><strong>Небольшая пауза</strong><button class="primary" data-action="pause">Продолжить →</button></div>'
+      ? session.retry
+        ? html`<div class="pause-cover" role="status">
+            <strong>Вернитесь в исходную позицию</strong
+            ><span
+              >Левая рука: ${esc(homeKeys.slice(0, 4).join(' '))} · Правая рука:
+              ${esc(homeKeys.slice(4).join(' '))}</span
+            ><span
+              >Клавиша ${esc(session.retry.key.toUpperCase())}:
+              ${esc(fingers[keyInfo(language(), session.retry.key).finger])}</span
+            ><span
+              >Повторите сочетание: <strong>${esc(session.retry.combo.toUpperCase())}</strong></span
+            ><button class="primary" data-action="pause">Повторить сочетание →</button>
+          </div>`
+        : '<div class="pause-cover"><strong>Небольшая пауза</strong><button class="primary" data-action="pause">Продолжить →</button></div>'
       : '';
   updateClock();
   updateKeyboard();
@@ -921,7 +1019,7 @@ function bindInput() {
     for (const c of chars) processChar(c);
   });
   input.addEventListener('blur', (e) => {
-    if (e.relatedTarget?.closest('[data-action="pause"]')) return;
+    if (e.relatedTarget?.closest('[data-action="pause"], [data-action="mark-finger"]')) return;
     if (session?.status === 'running') {
       session.pause();
       renderTyping();
@@ -935,6 +1033,35 @@ function processChar(char) {
   renderTyping();
   if (session.status === 'done') finish();
 }
+function markWrongFinger() {
+  if (sessionKind !== 'retraining' || session?.status !== 'running') return;
+  const marked = session.markWrongFinger();
+  if (!marked) {
+    toast(
+      session.wrong
+        ? 'Сначала исправьте опечатку клавишей Backspace.'
+        : 'Сначала напечатайте клавишу.',
+    );
+    return;
+  }
+  data.fingerMarks[languageId] ??= {};
+  data.fingerMarks[languageId][marked.key] = (data.fingerMarks[languageId][marked.key] || 0) + 1;
+  save();
+  renderTyping();
+  $('[data-action="pause"]:is(.pause-cover button)')?.focus();
+}
+document.addEventListener('keydown', (e) => {
+  if (
+    e.key !== 'F2' ||
+    e.repeat ||
+    e.isComposing ||
+    sessionKind !== 'retraining' ||
+    session?.status !== 'running'
+  )
+    return;
+  e.preventDefault();
+  markWrongFinger();
+});
 function togglePause() {
   if (!session) return;
   if (session.status === 'running') session.pause();
@@ -960,12 +1087,13 @@ function startLesson() {
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
 }
-function startPractice(text, title) {
+function startPractice(text, title, kind = 'practice') {
   stopSession();
-  sessionKind = 'practice';
+  sessionKind = kind;
   sessionLesson = null;
   sessionTitle = title;
   session = new TypingSession(text);
+  retrainingSetup = false;
   view = 'practice';
   render();
   session.start();
@@ -990,6 +1118,7 @@ function finish() {
     speed: session.speed(),
     duration: session.time(),
     mistakes: session.mistakes,
+    fingerMarks: session.fingerMarks,
     length: session.text.length,
   };
   data.history.push(result);
@@ -1004,6 +1133,7 @@ function finish() {
   save();
   sidebar();
   const passed = result.accuracy >= 95,
+    fingerMarkCount = Object.values(result.fingerMarks).reduce((sum, n) => sum + n, 0),
     weak = Object.entries(session.mistakes)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5),
@@ -1011,7 +1141,11 @@ function finish() {
   modal(
     html`<div class="result-icon">${passed ? '✦' : '⌁'}</div>
       <h1 class="result-heading">
-        ${passed ? 'Отлично, ритм найден!' : 'Уже ближе к уверенной печати'}
+        ${sessionKind === 'retraining'
+          ? 'Короткая тренировка завершена'
+          : passed
+            ? 'Отлично, ритм найден!'
+            : 'Уже ближе к уверенной печати'}
       </h1>
       <p class="dialog-subtitle" style="text-align:center">
         ${sessionKind === 'lesson'
@@ -1024,6 +1158,9 @@ function finish() {
         <div><b>${result.accuracy}%</b><span>точность</span></div>
         <div><b>${result.speed}</b><span>знаков / мин</span></div>
         <div><b>${Math.round(result.duration / 1000)} с</b><span>активное время</span></div>
+        ${sessionKind === 'retraining'
+          ? html`<div><b>${fingerMarkCount}</b><span>отметок другого пальца</span></div>`
+          : ''}
       </div>
       <div class="result-note">
         ${weak.length
@@ -1033,9 +1170,14 @@ function finish() {
                   .map(([c, n]) => `${esc(c === ' ' ? 'пробел' : c)} (${n})`)
                   .join(', ')}</strong
               >. Упражнение на эти клавиши доступно в разделе «Практика».`
-          : 'Ни одной ошибки. Сохраните этот спокойный темп в следующем упражнении.'}<br />Скорость:
+          : sessionKind === 'retraining' && fingerMarkCount
+            ? 'Опечаток нет. Отмеченные движения пальцев можно повторить в следующем упражнении.'
+            : 'Ни одной ошибки. Сохраните этот спокойный темп в следующем упражнении.'}<br />Скорость:
         правильно набранные символы ÷ активное время в минутах. Точность учитывает все попытки,
         включая исправленные ошибки.
+        ${sessionKind === 'retraining'
+          ? 'Отметки другого пальца сохранены отдельно и не снижают точность.'
+          : ''}
       </div>
       <div class="result-actions">
         <button class="secondary" data-action="repeat">Повторить</button>${next && passed
@@ -1345,7 +1487,7 @@ const actions = {
       kind = sessionKind;
     closeModal();
     if (kind === 'lesson') startLesson();
-    else if (text) startPractice(text, title);
+    else if (text) startPractice(text, title, kind);
   },
   next: () => {
     closeModal();
@@ -1371,8 +1513,25 @@ const actions = {
   },
   'new-practice': () => {
     stopSession();
+    retrainingSetup = false;
     render();
   },
+  'retraining-open': () => {
+    stopSession();
+    retrainingSetup = true;
+    view = 'practice';
+    render();
+  },
+  'retraining-close': () => {
+    retrainingSetup = false;
+    render();
+  },
+  'start-retraining': () => {
+    const keys = data.retrainingKeys[languageId] || [];
+    if (!keys.length) return;
+    startPractice(retrainingDrill(language(), keys), 'Переучиваюсь', 'retraining');
+  },
+  'mark-finger': markWrongFinger,
   'practice-sample': () => startPractice(language().text, 'Текст для разминки'),
   'practice-weak': () => {
     closeModal();
@@ -1389,6 +1548,7 @@ const actions = {
   'confirm-reset': () => {
     data.history = [];
     data.progress = {};
+    data.fingerMarks = {};
     save();
     closeModal();
     render();
@@ -1427,6 +1587,23 @@ $('.brand').addEventListener('click', (e) => {
   render();
 });
 $('#main').addEventListener('click', (e) => {
+  const key = e.target.closest('[data-retraining-key]');
+  if (key && retrainingSetup && !session) {
+    const value = key.dataset.retrainingKey;
+    const selected = [...(data.retrainingKeys[languageId] || [])];
+    const index = selected.indexOf(value);
+    if (index >= 0) selected.splice(index, 1);
+    else if (selected.length >= 8) {
+      toast('Можно выбрать до 8 клавиш для короткого упражнения.');
+      return;
+    } else selected.push(value);
+    data.retrainingKeys[languageId] = selected;
+    const position = key.dataset.key;
+    save();
+    render();
+    $(`[data-key="${position}"]`)?.focus();
+    return;
+  }
   const b = e.target.closest('[data-tab]');
   if (!b) return;
   const nextTab = b.dataset.tab;
