@@ -264,6 +264,20 @@ nav {
   background: #e8f5ed;
   border-color: #d9eee1;
 }
+.lesson-num.mastered {
+  color: #7458a3;
+  background: #f0eafb;
+  border-color: #e4d7f6;
+}
+.progress-explainer {
+  padding: 13px 16px;
+  border-radius: 10px;
+  background: #f3f6ff;
+  color: #62718d;
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 0 0 20px;
+}
 .lesson-arrow {
   margin-left: auto;
   font-size: 16px;
@@ -498,6 +512,28 @@ h3 {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 22px 24px 18px;
+}
+.keyboard-card[hidden] {
+  display: none;
+}
+.training-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: -5px 0 15px;
+  color: #66758e;
+  font-size: 11px;
+}
+.finger-mark-button {
+  margin-top: 4px;
+  font-size: 11px;
+}
+.finger-mark-button span {
+  margin-left: 5px;
+}
+.chart-picker {
+  max-width: 340px;
+  margin: 18px 0 0;
 }
 .keyboard-heading {
   display: flex;

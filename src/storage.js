@@ -4,7 +4,7 @@ export const STORAGE_KEY = 'ritm-v1';
 const BACKUP_FORMAT = 'ritm-profile';
 const BACKUP_VERSION = 1;
 const ROW_LENGTHS = [13, 12, 11, 10];
-const SETTING_KEYS = ['colors', 'letters', 'hands'];
+const SETTING_KEYS = ['colors', 'letters', 'hands', 'guidance', 'hideSpeed'];
 
 export function emptyProfile() {
   return {
@@ -16,7 +16,15 @@ export function emptyProfile() {
     progress: {},
     retrainingKeys: {},
     fingerMarks: {},
-    settings: { colors: true, letters: true, hands: false, hintMode: 'auto' },
+    reinforcement: {},
+    settings: {
+      colors: true,
+      letters: true,
+      hands: false,
+      hintMode: 'auto',
+      guidance: true,
+      hideSpeed: false,
+    },
   };
 }
 
@@ -246,6 +254,26 @@ function readHistoryEntry(entry, languages) {
     for (const [char, errors] of Object.entries(errorPositions))
       requireValid(errors <= (presentations[char] || 0), 'Ошибок по клавише больше предъявлений.');
   }
+  const localDay = entry.localDay === undefined ? null : readDay(entry.localDay);
+  if (entry.hintsUsed !== undefined)
+    requireValid(typeof entry.hintsUsed === 'boolean', 'Некорректное поле подсказок.');
+  if (entry.helpFlags !== undefined)
+    requireValid(
+      Number.isInteger(entry.helpFlags) &&
+        entry.helpFlags >= 0 &&
+        entry.helpFlags <= 63 &&
+        (entry.helpFlags === 0
+          ? entry.hintsUsed === false
+          : entry.hintsUsed === true && (entry.helpFlags & 1) === 1),
+      'Некорректные условия подсказок.',
+    );
+  if (entry.exerciseKey !== undefined)
+    requireValid(
+      typeof entry.exerciseKey === 'string' &&
+        /^\d{1,6}-[0-9a-f]{16}$/.test(entry.exerciseKey) &&
+        Number(entry.exerciseKey.split('-')[0]) === length,
+      'Некорректный идентификатор упражнения.',
+    );
   return {
     date: new Date(date).toISOString(),
     language: entry.language,
@@ -256,10 +284,57 @@ function readHistoryEntry(entry, languages) {
     speed: readNumber(entry.speed, 10000000, 'скорость'),
     duration: readNumber(entry.duration, 31536000000, 'время'),
     mistakes: readMistakes(entry.mistakes ?? {}, language),
-    fingerMarks: readMistakes(entry.fingerMarks ?? {}, language),
+    ...(entry.fingerMarks === undefined
+      ? {}
+      : { fingerMarks: readMistakes(entry.fingerMarks, language) }),
     length,
     ...(hasKeyCounts ? { presentations, errorPositions } : {}),
+    ...(localDay === null ? {} : { localDay }),
+    ...(entry.hintsUsed === undefined ? {} : { hintsUsed: entry.hintsUsed }),
+    ...(entry.helpFlags === undefined ? {} : { helpFlags: entry.helpFlags }),
+    ...(entry.exerciseKey === undefined ? {} : { exerciseKey: entry.exerciseKey }),
   };
+}
+
+function readDay(day) {
+  requireValid(
+    typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day),
+    'Некорректная дата проверки.',
+  );
+  const parsed = new Date(`${day}T00:00:00.000Z`);
+  requireValid(
+    Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day,
+    'Некорректная дата проверки.',
+  );
+  return day;
+}
+
+function readReinforcement(source, languages) {
+  requireValid(isRecord(source), 'Некорректный прогресс закрепления.');
+  const result = {};
+  for (const [languageId, lessons] of Object.entries(source)) {
+    requireValid(
+      Object.hasOwn(languages, languageId) && isRecord(lessons),
+      'Некорректный прогресс закрепления.',
+    );
+    result[languageId] = {};
+    for (const [index, check] of Object.entries(lessons)) {
+      requireValid(
+        /^(0|[1-9]\d*)$/.test(index) &&
+          isLessonIndex(languages[languageId], Number(index)) &&
+          isRecord(check),
+        'Некорректный урок закрепления.',
+      );
+      const firstPassedDay = readDay(check.firstPassedDay);
+      const masteredDay = check.masteredDay === null ? null : readDay(check.masteredDay);
+      requireValid(
+        masteredDay === null || masteredDay > firstPassedDay,
+        'Проверка закрепления должна быть в другой день.',
+      );
+      result[languageId][index] = { firstPassedDay, masteredDay };
+    }
+  }
+  return result;
 }
 
 function readProgress(source, languages, history) {
@@ -315,6 +390,13 @@ export function parseBackup(input) {
   requireValid(source.history.length <= 500, 'В файле больше 500 занятий.');
   result.history = source.history.map((entry) => readHistoryEntry(entry, languages));
   result.progress = readProgress(source.progress ?? {}, languages, result.history);
+  result.reinforcement = readReinforcement(source.reinforcement ?? {}, languages);
+  for (const [languageId, lessons] of Object.entries(result.reinforcement))
+    for (const index of Object.keys(lessons))
+      requireValid(
+        (result.progress[languageId]?.[index] ?? 0) >= 95,
+        'Закреплённый урок должен быть выполнен.',
+      );
   return result;
 }
 
