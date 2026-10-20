@@ -124,6 +124,15 @@ function newSession(text) {
 function mastered(id) {
   return lessonState(data, languageId, id).mastered;
 }
+function reinforcementHint(id) {
+  const state = lessonState(data, languageId, id);
+  if (!state.completed || state.mastered) return '';
+  if (!state.firstPassedDay)
+    return 'Старое достижение сохранено. Для закрепления нужны две новые попытки от 95% в разные дни; вторую проведите без подсказок.';
+  return localDay() > state.firstPassedDay
+    ? 'Самостоятельную проверку можно пройти сейчас: выключите схему клавиатуры и достигните точности от 95%.'
+    : 'Вернитесь к уроку в другой календарный день и пройдите его без подсказок с точностью от 95%.';
+}
 function currentHelpFlags() {
   return data.settings.guidance
     ? 1 |
@@ -513,10 +522,8 @@ function learnPage() {
         >${mastered(l.id) ? 'Закреплено ★' : completed(l.id) ? 'Выполнено ✓' : 'В процессе'}</strong
       >
       · «Выполнено» — точность от 95% в одной попытке. «Закреплено» — ещё одна попытка от 95% без
-      подсказок в другой календарный день. Это ориентиры курса, не научно установленные
-      пороги.${completed(l.id) && !mastered(l.id)
-        ? ' Вернитесь к уроку в другой день и выключите подсказки для самостоятельной проверки.'
-        : ''}
+      подсказок в другой календарный день. Это ориентиры курса, не научно установленные пороги.
+      ${reinforcementHint(l.id)}
     </p>
     <div class="lesson-tabs">
       <button class="lesson-tab ${tab === 'lecture' ? 'active' : ''}" data-tab="lecture">
@@ -1550,7 +1557,7 @@ function finish() {
           ? passed
             ? mastered(result.lesson)
               ? 'Урок закреплён. Самостоятельная проверка в другой день пройдена.'
-              : 'Урок выполнен. Для закрепления повторите его без подсказок в другой календарный день.'
+              : `Урок выполнен. ${reinforcementHint(result.lesson)}`
             : 'Для прохождения урока нужна точность от 95%. Попробуйте ещё раз без спешки.'
           : 'Тренировка завершена. Результат сохранён.'}
       </p>
