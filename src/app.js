@@ -13,6 +13,7 @@ import {
   TypingSession,
 } from './course.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
+import { hintLevel } from './hints.js';
 const $ = (s) => document.querySelector(s);
 const handMotion = new HandMotion();
 let handSurface = null;
@@ -87,6 +88,9 @@ function stopSession() {
 }
 function completed(id) {
   return (data.progress[languageId]?.[id] || 0) >= 95;
+}
+function currentHintLevel() {
+  return hintLevel(data.settings.hintMode, data.progress[languageId], lessons().length);
 }
 function sidebar() {
   $('#profile-label').textContent = data.profile.name || 'Мой профиль';
@@ -200,7 +204,8 @@ function keyMarkup(char, row, col) {
   const f = zoneRows[row][col],
     next = session?.text[session.position],
     info = keyInfo(language(), next || (view === 'learn' ? lesson().text[0] : ''));
-  const isNext = info?.row === row && info?.col === col;
+  const level = currentHintLevel();
+  const isNext = level !== 'none' && info?.row === row && info?.col === col;
   const classes = `key ${fingerClasses[f]} ${row === 2 && [3, 6].includes(col) ? 'home' : ''} ${isNext ? 'next' : ''} ${choosing && selected ? 'selected' : ''}`;
   const label = html`<span class="shift-label"
       >${esc(
@@ -224,7 +229,7 @@ function keyMarkup(char, row, col) {
     : html`<div
         class="${classes}"
         data-key="${row}-${col}"
-        title="${esc(char)} · ${esc(fingers[f])}"
+        title="${esc(char)}${level === 'full' ? ` · ${esc(fingers[f])}` : ''}"
       >
         ${label}
       </div>`;
@@ -235,6 +240,26 @@ function keyboard() {
       <h2>Клавиатура · ${esc(language().layout)}</h2>
       <div class="keyboard-options">
         <button class="text-button" data-action="hand-demo">Показать движение</button>
+        <label class="check-label hint-mode-label" for="hint-mode"
+          >Подсказки
+          <select id="hint-mode" aria-label="Режим подсказок">
+            ${[
+              ['auto', 'Авто'],
+              ['always', 'Всегда'],
+              ['off', 'Выкл.'],
+            ]
+              .map(
+                ([value, label]) =>
+                  html`<option
+                    value="${value}"
+                    ${data.settings.hintMode === value ? 'selected' : ''}
+                  >
+                    ${label}
+                  </option>`,
+              )
+              .join('')}
+          </select>
+        </label>
         <label class="check-label"
           ><input id="hands" type="checkbox" ${data.settings.hands ? 'checked' : ''} />Показать
           руки</label
@@ -315,7 +340,7 @@ function keyboard() {
       <p id="finger-hint">
         <span class="hint-symbol">→</span> <strong>Каждому пальцу — своя зона.</strong>
       </p>
-      <p>После нажатия возвращайтесь на основной ряд</p>
+      <p id="hint-explanation"></p>
     </div>
   </section>`;
 }
@@ -749,6 +774,11 @@ function render() {
   bindSettings();
 }
 function bindSettings() {
+  $('#hint-mode')?.addEventListener('change', (event) => {
+    data.settings.hintMode = event.target.value;
+    save();
+    updateKeyboard();
+  });
   for (const setting of ['colors', 'letters', 'hands'])
     $(`#${setting}`)?.addEventListener('change', (e) => {
       data.settings[setting] = e.target.checked;
@@ -855,22 +885,37 @@ function updateKeyboard(handOptions = {}) {
       : view === 'learn'
         ? lesson().text[0]
         : '',
-    info = keyInfo(language(), expected || '');
-  document.querySelectorAll('.key.next').forEach((k) => k.classList.remove('next'));
-  if (info) {
+    info = keyInfo(language(), expected || ''),
+    level = currentHintLevel();
+  document.querySelectorAll('.key.next, .space.next').forEach((k) => k.classList.remove('next'));
+  if (info && level !== 'none') {
     $(`[data-key="${info.row}-${info.col}"]`)?.classList.add('next');
     if (info.row === 4) $('#space-key')?.classList.add('next');
     if (info.shift) $(info.finger < 4 ? '#shift-right' : '#shift-left')?.classList.add('next');
   }
   if ($('#finger-hint'))
-    $('#finger-hint').innerHTML = info
-      ? html`<span class="hint-symbol">→</span>
-          <strong
-            >${esc(expected === ' ' ? 'Пробел' : expected?.toUpperCase() || '')} ·
-            ${fingers[info.finger]}</strong
-          >${info.shift ? ` + ${info.finger < 4 ? 'правый' : 'левый'} Shift` : ''}`
-      : '<span class="hint-symbol">→</span> Каждому пальцу — своя зона.';
-  updateHandOverlay(info, expected, handOptions);
+    $('#finger-hint').innerHTML =
+      info && level === 'full'
+        ? html`<span class="hint-symbol">→</span>
+            <strong
+              >${esc(expected === ' ' ? 'Пробел' : expected?.toUpperCase() || '')} ·
+              ${fingers[info.finger]}</strong
+            >${info.shift ? ` + ${info.finger < 4 ? 'правый' : 'левый'} Shift` : ''}`
+        : info && level === 'key'
+          ? 'Следующая клавиша выделена на схеме.'
+          : level === 'none'
+            ? 'Найдите следующую клавишу по памяти.'
+            : 'Каждому пальцу — своя зона.';
+  if ($('#hint-explanation'))
+    $('#hint-explanation').textContent =
+      data.settings.hintMode === 'auto'
+        ? level === 'full'
+          ? 'Авто: показаны клавиша и палец. После 25% уроков останется только клавиша.'
+          : level === 'key'
+            ? 'Авто: показана клавиша. После 50% уроков подсказки исчезнут.'
+            : 'Авто: подсказки скрыты. Их можно вернуть в меню выше.'
+        : 'После нажатия возвращайтесь на основной ряд';
+  updateHandOverlay(level === 'full' ? info : null, expected, handOptions);
 }
 function updateHandOverlay(info, expected, options) {
   const keyboard = $('.keyboard'),
@@ -1396,6 +1441,26 @@ function openProfile() {
                 >`,
             )
             .join('')}
+          <label class="check-label" for="profile-hint-mode"
+            >Подсказки движения
+            <select id="profile-hint-mode">
+              ${[
+                ['auto', 'Авто'],
+                ['always', 'Всегда'],
+                ['off', 'Выкл.'],
+              ]
+                .map(
+                  ([value, label]) =>
+                    html`<option
+                      value="${value}"
+                      ${data.settings.hintMode === value ? 'selected' : ''}
+                    >
+                      ${label}
+                    </option>`,
+                )
+                .join('')}
+            </select>
+          </label>
         </div>
         <p id="profile-save-state" class="form-note" role="status">
           Изменения сохраняются автоматически.
@@ -1425,6 +1490,7 @@ function openProfile() {
   $('#profile-name').addEventListener('input', saveProfileInputs);
   for (const key of ['colors', 'letters', 'hands'])
     $(`#profile-${key}`).addEventListener('change', saveProfileInputs);
+  $('#profile-hint-mode').addEventListener('change', saveProfileInputs);
   $('#profile-form').addEventListener('submit', (e) => {
     e.preventDefault();
     saveProfileInputs();
@@ -1433,6 +1499,8 @@ function openProfile() {
 }
 function saveProfileInputs() {
   data.profile.name = $('#profile-name').value.trim();
+  data.settings.hintMode = $('#profile-hint-mode').value;
+  if ($('#hint-mode')) $('#hint-mode').value = data.settings.hintMode;
   for (const key of ['colors', 'letters', 'hands']) {
     data.settings[key] = $(`#profile-${key}`).checked;
     if ($(`#${key}`)) $(`#${key}`).checked = data.settings[key];
