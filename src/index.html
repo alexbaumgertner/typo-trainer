@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#365bdb" />
+    <meta
+      name="description"
+      content="Ритм — тренажёр слепой печати. Русский и английский, уроки с нуля, понятные лекции и практика десятью пальцами."
+    />
+    <title>Ритм — учитесь печатать свободно</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23365bdb'/%3E%3Cpath d='M10 27V17m7 10V10m7 17V14m7 13V8' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <header class="header">
+      <a href="#" class="brand" aria-label="Ритм — на главную"
+        ><span class="brand-icon"><i></i><i></i><i></i><i></i></span>ритм<span class="brand-dot"
+          >.</span
+        ></a
+      >
+      <nav aria-label="Основная навигация">
+        <button data-view="learn" class="nav active">Обучение</button
+        ><button data-view="practice" class="nav">Практика</button
+        ><button data-view="progress" class="nav">Мой прогресс</button>
+      </nav>
+      <button class="profile-button" id="open-profile" aria-label="Профиль и перенос данных">
+        <span id="profile-avatar" class="profile-avatar">Я</span
+        ><span id="profile-label">Мой профиль</span></button
+      ><button class="help-button" id="help">? <span>Как заниматься</span></button>
+    </header>
+    <div class="app-layout">
+      <aside class="sidebar">
+        <div class="sidebar-title">ВАША РАСКЛАДКА</div>
+        <div class="language-wrap">
+          <span class="language-symbol">Аа</span
+          ><select id="language" aria-label="Язык обучения"></select>
+        </div>
+        <button id="add-language" class="text-button add-language">+ Добавить язык</button>
+        <div class="course-heading">
+          <strong>От первых клавиш к тексту</strong><span id="course-count">0 / 16</span>
+        </div>
+        <div class="thin-progress"><div id="course-fill"></div></div>
+        <div id="lesson-list"></div>
+        <div class="daily-tip">
+          <span class="tip-icon">✦</span><strong>Немного, но каждый день</strong>
+          <p>10–15 минут спокойной практики помогают выработать привычку.</p>
+          <small>Ваш темп — самый правильный.</small>
+        </div>
+      </aside>
+      <main id="main" tabindex="-1"></main>
+    </div>
+    <footer>
+      <span>ритм. <span class="muted">Пальцы запомнят. Вы сможете больше.</span></span
+      ><span>Прогресс сохраняется в этом браузере <span class="save-dot"></span></span>
+    </footer>
+    <dialog id="dialog">
+      <button id="close-dialog" class="dialog-close" aria-label="Закрыть">×</button>
+      <div id="dialog-content"></div>
+    </dialog>
+    <div id="toast" role="status"></div>
+  </body>
+</html>
