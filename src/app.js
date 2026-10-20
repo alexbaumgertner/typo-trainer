@@ -13,7 +13,7 @@ import {
   TypingSession,
 } from './course.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
-import { hintLevel } from './hints.js';
+import { hintLevel, refreshKeyTooltips } from './hints.js';
 const $ = (s) => document.querySelector(s);
 const handMotion = new HandMotion();
 let handSurface = null;
@@ -887,6 +887,7 @@ function updateKeyboard(handOptions = {}) {
         : '',
     info = keyInfo(language(), expected || ''),
     level = currentHintLevel();
+  refreshKeyTooltips(document.querySelectorAll('.keyboard div.key[data-key]'), language(), level);
   document.querySelectorAll('.key.next, .space.next').forEach((k) => k.classList.remove('next'));
   if (info && level !== 'none') {
     $(`[data-key="${info.row}-${info.col}"]`)?.classList.add('next');
