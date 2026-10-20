@@ -196,6 +196,26 @@ function readFingerMarks(source, languages) {
   return result;
 }
 
+function readKeyCounts(source, language) {
+  requireValid(
+    isRecord(source) && Object.keys(source).length <= 100,
+    'Некорректная статистика клавиш.',
+  );
+  const counts = {};
+  for (const [character, count] of Object.entries(source)) {
+    requireValid(
+      character.length === 1 &&
+        keyInfo(language, character) &&
+        Number.isInteger(count) &&
+        count > 0 &&
+        count <= 100000,
+      'Некорректная статистика клавиш.',
+    );
+    counts[character] = count;
+  }
+  return counts;
+}
+
 function readHistoryEntry(entry, languages) {
   requireValid(
     isRecord(entry) &&
@@ -211,6 +231,21 @@ function readHistoryEntry(entry, languages) {
   requireValid(validLesson, 'В истории указан несуществующий урок.');
   const length = readNumber(entry.length, 100000, 'число символов');
   requireValid(Number.isInteger(length), 'Число символов должно быть целым.');
+  const hasKeyCounts = entry.presentations !== undefined || entry.errorPositions !== undefined;
+  requireValid(
+    !hasKeyCounts || (entry.presentations !== undefined && entry.errorPositions !== undefined),
+    'Неполная статистика клавиш.',
+  );
+  const presentations = hasKeyCounts ? readKeyCounts(entry.presentations, language) : undefined;
+  const errorPositions = hasKeyCounts ? readKeyCounts(entry.errorPositions, language) : undefined;
+  if (hasKeyCounts) {
+    requireValid(
+      Object.values(presentations).reduce((sum, n) => sum + n, 0) === length,
+      'Число предъявлений не совпадает с длиной занятия.',
+    );
+    for (const [char, errors] of Object.entries(errorPositions))
+      requireValid(errors <= (presentations[char] || 0), 'Ошибок по клавише больше предъявлений.');
+  }
   return {
     date: new Date(date).toISOString(),
     language: entry.language,
@@ -223,6 +258,7 @@ function readHistoryEntry(entry, languages) {
     mistakes: readMistakes(entry.mistakes ?? {}, language),
     fingerMarks: readMistakes(entry.fingerMarks ?? {}, language),
     length,
+    ...(hasKeyCounts ? { presentations, errorPositions } : {}),
   };
 }
 

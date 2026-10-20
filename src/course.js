@@ -125,14 +125,51 @@ const focuses = [
   'Shift удерживает мизинец противоположной руки: для буквы левой рукой — правый Shift, для правой — левый. Отпустите Shift сразу после заглавной буквы.',
   'Печатайте связный текст с ровным ритмом. Взгляд направляйте на экран и читайте на слово вперёд. Сначала точность, затем скорость; делайте паузы при усталости.',
 ];
-export function drill(keys, count = 24) {
-  const letters = Array.from(keys.replaceAll(' ', ''));
+export function seededRandom(seed) {
+  let state = 2166136261;
+  for (const char of String(seed)) {
+    state ^= char.codePointAt(0);
+    state = Math.imul(state, 16777619);
+  }
+  return () => {
+    state += 0x6d2b79f5;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+export function drill(keys, count = 24, seed = keys) {
+  const letters = [...new Set([...keys].filter((char) => char !== ' '))];
   if (!letters.length) return '';
-  return Array.from({ length: count }, (_, i) => {
-    const a = letters[i % letters.length],
-      b = letters[(i + 1) % letters.length];
-    return [a + a, a + b, b + a, a + b + a][i % 4];
-  }).join(' ');
+  const rng = seededRandom(seed),
+    used = new Map(),
+    pairs = new Map(),
+    output = [];
+  for (let i = 0; i < count * 3; i++) {
+    const fewest = Math.min(...letters.map((char) => used.get(char) || 0));
+    const previous = output.at(-1);
+    const char = letters
+      .filter((candidate) => (used.get(candidate) || 0) === fewest)
+      .map((candidate) => ({
+        candidate,
+        score: (pairs.get(`${previous}:${candidate}`) || 0) + rng(),
+      }))
+      .sort((a, b) => a.score - b.score)[0].candidate;
+    output.push(char);
+    used.set(char, (used.get(char) || 0) + 1);
+    pairs.set(`${previous}:${char}`, (pairs.get(`${previous}:${char}`) || 0) + 1);
+  }
+  let text = '',
+    boundary = 2 + Math.floor(rng() * 3);
+  for (let i = 0; i < output.length; i++) {
+    if (i === boundary) {
+      text += ' ';
+      boundary = i + 2 + Math.floor(rng() * 3);
+    }
+    text += output[i];
+  }
+  return text;
 }
 const homeColumns = [0, 1, 2, 3, 6, 7, 8, 9];
 export function homePosition(language) {
@@ -219,6 +256,8 @@ export class TypingSession {
     this.mistakes = {};
     this.fingerMarks = {};
     this.retry = null;
+    this.errorPositions = {};
+    this.missedPositions = new Set();
     this.elapsed = 0;
     this.started = null;
     this.status = 'ready';
@@ -245,6 +284,10 @@ export class TypingSession {
       this.wrong = true;
       const expected = this.text[this.position];
       this.mistakes[expected] = (this.mistakes[expected] || 0) + 1;
+      if (!this.missedPositions.has(this.position)) {
+        this.missedPositions.add(this.position);
+        this.errorPositions[expected] = (this.errorPositions[expected] || 0) + 1;
+      }
       return false;
     }
     this.position++;
@@ -274,6 +317,11 @@ export class TypingSession {
     this.position = from;
     this.pause(now);
     return this.retry;
+  }
+  presentations() {
+    const counts = {};
+    for (const char of this.text) counts[char] = (counts[char] || 0) + 1;
+    return counts;
   }
   accuracy() {
     return this.attempts

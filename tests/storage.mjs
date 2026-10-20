@@ -51,6 +51,10 @@ assert.equal(parseBackup(legacy).settings.hands, false);
 assert.equal(parseBackup(legacy).settings.hintMode, 'auto');
 assert.deepEqual(parseBackup(legacy).retrainingKeys, {});
 assert.deepEqual(parseBackup(legacy).history[0].fingerMarks, {});
+const withKeyCounts = structuredClone(clean);
+withKeyCounts.history[0].presentations = { f: 2, j: 108 };
+withKeyCounts.history[0].errorPositions = { f: 1 };
+assert.deepEqual(parseBackup(withKeyCounts).history[0].presentations, { f: 2, j: 108 });
 const reject = (mutate) => {
   const copy = makeBackup(clean);
   mutate(copy);
@@ -70,6 +74,11 @@ reject((v) => (v.data.retrainingKeys.en = ['q', 'q']));
 reject((v) => (v.data.retrainingKeys.en = ['?']));
 reject((v) => (v.data.fingerMarks.en.q = -1));
 reject((v) => (v.data.history[0].fingerMarks.f = -1));
+const invalidCounts = makeBackup(withKeyCounts);
+invalidCounts.data.history[0].errorPositions.f = 3;
+assert.throws(() => parseBackup(invalidCounts));
+delete invalidCounts.data.history[0].errorPositions;
+assert.throws(() => parseBackup(invalidCounts));
 assert.throws(() => parseBackup({}));
 const malicious = JSON.parse(
   '{"history":[],"settings":{},"selected":"ru","customLanguages":{"__proto__":{}}}',

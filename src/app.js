@@ -12,6 +12,15 @@ import {
   homePosition,
   TypingSession,
 } from './course.js';
+import {
+  learnedCharacters,
+  keyStatistics,
+  shiftStatistics,
+  keyLabel,
+  fingerKeys,
+  handKeys,
+  generateExercise,
+} from './exercises.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
 import { hintLevel, refreshKeyTooltips } from './hints.js';
 const $ = (s) => document.querySelector(s);
@@ -63,6 +72,15 @@ function lessons() {
 }
 function lesson() {
   return lessons()[Math.min(Math.max(0, lessonIndex), lessons().length - 1)];
+}
+function learned() {
+  return learnedCharacters(lessons(), lessonIndex);
+}
+function recentKeyStats() {
+  return keyStatistics(
+    data.history.filter((h) => h.language === languageId),
+    learned(),
+  );
 }
 function save() {
   try {
@@ -515,7 +533,7 @@ function learnPage() {
     </details>`;
 }
 function trainingMarkup() {
-  if (!session) session = new TypingSession(lesson().text);
+  if (!session) prepareLessonSession();
   return html`<div class="stats-strip">
       <div class="live-stat">
         <span>СКОРОСТЬ</span><b id="live-speed">0</b><small>зн/мин</small>
@@ -595,6 +613,14 @@ function retrainingSetupMarkup() {
     ${keyboard()}`;
 }
 function practicePage() {
+  const stats = recentKeyStats(),
+    difficult = stats.filter((stat) => stat.difficult).sort((a, b) => b.lower - a.lower),
+    insufficient = stats.filter((stat) => !stat.sufficient).length,
+    shifts = shiftStatistics(language(), stats);
+  const shiftResult = (side) =>
+    shifts[side].shown >= 12
+      ? `${Math.round((100 * shifts[side].errors) / shifts[side].shown)}% (${shifts[side].errors}/${shifts[side].shown})`
+      : `недостаточно данных (${shifts[side].shown}/12)`;
   return html`<div class="breadcrumb">
       Практика <span>›</span><span class="current">${esc(language().name)}</span>
     </div>
@@ -605,7 +631,9 @@ function practicePage() {
       </div>
       <button class="secondary" data-action="add-language">+ Добавить язык</button>
     </div>
-    <p class="subtitle">Закрепите трудные клавиши или потренируйтесь на своём тексте.</p>
+    <p class="subtitle">
+      Повторите изученные клавиши, выберите палец или руку либо потренируйтесь на своём тексте.
+    </p>
     ${session
       ? html`${sessionKind === 'retraining'
             ? '<p class="form-note">Самопроверка: нажмите F2 сразу после клавиши, которую нажали не тем пальцем. Занятие остановится и предложит повторить сочетание.</p>'
@@ -629,13 +657,94 @@ function practicePage() {
                 ></button
               ><button class="choice" data-action="practice-weak">
                 <strong>Трудные клавиши ↗</strong
-                ><span>Упражнение на основе ваших последних ошибок</span>
+                ><span>По доле ошибок за последние 10 занятий с полной статистикой</span>
               </button>
               <button class="choice" data-action="retraining-open">
                 <strong>Переучиваюсь ↗</strong
                 ><span>Выберите клавиши и проверяйте, каким пальцем их нажимаете</span>
               </button>
             </div>
+            <section class="practice-form">
+              <h2>Точечная практика</h2>
+              <p class="form-note">
+                Используются клавиши до выбранного урока включительно. Для повторения укажите тот же
+                seed и тот же выбор. Для трудных клавиш можно повторить точный набор символов.
+              </p>
+              <form id="exercise-form">
+                <div class="exercise-fields">
+                  <label class="field"
+                    >Палец
+                    <select name="finger">
+                      ${fingers
+                        .map(
+                          (name, i) =>
+                            html`<option value="${i}">
+                              ${name}${i === 8 ? ' (пробел)' : ''}
+                            </option>`,
+                        )
+                        .join('')}
+                    </select>
+                  </label>
+                  <label class="field"
+                    >Второй палец
+                    <select name="otherFinger">
+                      ${fingers
+                        .map(
+                          (name, i) =>
+                            html`<option value="${i}" ${i === 4 ? 'selected' : ''}>
+                              ${name}${i === 8 ? ' (пробел)' : ''}
+                            </option>`,
+                        )
+                        .join('')}
+                    </select>
+                  </label>
+                  <label class="field"
+                    >Рука
+                    <select name="hand">
+                      <option value="left">Левая</option>
+                      <option value="right">Правая</option>
+                    </select>
+                  </label>
+                  <label class="field"
+                    >Seed для повтора
+                    <input name="seed" maxlength="60" placeholder="Случайный, если пусто" />
+                  </label>
+                  <label class="field"
+                    >Клавиши для точного повтора
+                    <input name="keys" maxlength="20" placeholder="Например: аА " />
+                  </label>
+                </div>
+                <p id="exercise-error" class="form-error" role="alert"></p>
+                <div class="row-actions">
+                  <button class="secondary" name="mode" value="finger">Выбранный палец</button>
+                  <button class="secondary" name="mode" value="fingers">Чередовать пальцы</button>
+                  <button class="secondary" name="mode" value="hand">Выбранная рука</button>
+                  <button class="secondary" name="mode" value="hands">Чередовать руки</button>
+                  <button class="secondary" name="mode" value="keys">Указанные клавиши</button>
+                </div>
+              </form>
+            </section>
+            <section class="practice-form">
+              <h2>Трудные клавиши</h2>
+              <p class="form-note">
+                ${difficult.length
+                  ? difficult
+                      .slice(0, 6)
+                      .map(
+                        (stat) =>
+                          `${esc(keyLabel(language(), stat.char))}: ${Math.round(stat.rate * 100)}% (${stat.errors}/${stat.shown})`,
+                      )
+                      .join(' · ')
+                  : 'Пока нет клавиш с высокой долей ошибок.'}
+                ${insufficient
+                  ? `Недостаточно данных для ${insufficient} изученных клавиш: нужно не менее 12 предъявлений каждой.`
+                  : ''}
+                Пробел и регистр учитываются отдельно. Символы с левым Shift:
+                ${shiftResult('left')}; с правым Shift: ${shiftResult('right')}. Это ошибки при
+                наборе символов с Shift; нельзя установить, была ли ошибка именно в физической
+                клавише Shift.
+              </p>
+            </section>
             <form id="practice-form" class="practice-form">
               <label class="field"
                 >Ваш текст<textarea
@@ -1172,15 +1281,46 @@ document.addEventListener('visibilitychange', () => {
 });
 function startLesson() {
   stopSession();
-  sessionKind = 'lesson';
-  sessionLesson = lesson().id;
-  sessionTitle = lesson().title;
-  session = new TypingSession(lesson().text);
+  prepareLessonSession();
   tab = 'training';
   render();
   session.start();
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
+}
+function prepareLessonSession() {
+  const current = lesson();
+  sessionKind = 'lesson';
+  sessionLesson = current.id;
+  sessionTitle = current.title;
+  let text = current.text;
+  if (current.keys) {
+    const seed = newExerciseSeed();
+    const keys = [...current.keys];
+    const groups =
+      current.id === 14
+        ? [
+            [
+              ...new Set([
+                ...keys,
+                ...keys.map((char) => {
+                  const info = keyInfo(language(), char);
+                  return language().rows[info.row][info.col];
+                }),
+              ]),
+            ],
+          ]
+        : [keys];
+    text = generateExercise({
+      language: language(),
+      learned: learned(),
+      groups,
+      seed,
+      gradual: [2, 3, 8, 12].includes(current.id),
+    });
+    sessionTitle = `${current.title} · seed ${seed}`;
+  }
+  session = new TypingSession(text);
 }
 function startPractice(text, title, kind = 'practice') {
   stopSession();
@@ -1215,6 +1355,8 @@ function finish() {
     mistakes: session.mistakes,
     fingerMarks: session.fingerMarks,
     length: session.text.length,
+    presentations: session.presentations(),
+    errorPositions: session.errorPositions,
   };
   data.history.push(result);
   data.history = data.history.slice(-500);
@@ -1293,18 +1435,48 @@ function validateText(t) {
     : '';
 }
 function weakPractice() {
-  const mistakes = {};
-  for (const h of data.history.filter((h) => h.language === languageId).slice(-10))
-    for (const [c, n] of Object.entries(h.mistakes || {}))
-      if (c !== ' ' && keyInfo(language(), c)) mistakes[c] = (mistakes[c] || 0) + n;
-  const chars = Object.keys(mistakes)
-    .sort((a, b) => mistakes[b] - mistakes[a])
+  const chars = recentKeyStats()
+    .filter((stat) => stat.difficult)
+    .sort((a, b) => b.lower - a.lower)
     .slice(0, 6)
-    .join('');
-  if (!chars) {
-    toast('Пока нет трудных клавиш. Начнём с исходной позиции.');
-    startPractice(drill(lessons()[0].keys), 'Повторение исходной позиции');
-  } else startPractice(drill(chars, 30), 'Трудные клавиши');
+    .map((stat) => stat.char);
+  const targets = chars.length
+    ? [...chars]
+    : [...learnedCharacters(lessons(), 0)].filter((char) => char !== ' ');
+  if (targets.length < 3) {
+    const anchors = [...learnedCharacters(lessons(), 0)].filter(
+      (char) => char !== ' ' && !targets.includes(char),
+    );
+    targets.push(...anchors.slice(0, 3 - targets.length));
+  }
+  if (!chars.length)
+    toast('Пока недостаточно данных о трудных клавишах. Повторим исходную позицию.');
+  const seed = $('#exercise-form [name="seed"]')?.value.trim() || '';
+  const label = targets.map((char) => (char === ' ' ? '␠' : char)).join(' ');
+  startGenerated(
+    [targets],
+    `${chars.length ? 'Трудные клавиши' : 'Исходная позиция'} [${label}]`,
+    false,
+    seed,
+  );
+}
+function newExerciseSeed() {
+  return Array.from(crypto.getRandomValues(new Uint32Array(2)), (value) => value.toString(36)).join(
+    '-',
+  );
+}
+function startGenerated(groups, title, gradual = false, seed = '') {
+  const chosenSeed = seed || newExerciseSeed();
+  const text = generateExercise({
+    language: language(),
+    learned: learned(),
+    groups,
+    seed: chosenSeed,
+    gradual,
+  });
+  if (!text) return false;
+  startPractice(text, `${title} · seed ${chosenSeed}`);
+  return true;
 }
 function addLanguage() {
   modal(
@@ -1784,6 +1956,58 @@ $('#dialog').addEventListener('click', (e) => {
   }
 });
 document.addEventListener('submit', (e) => {
+  if (e.target.id === 'exercise-form') {
+    e.preventDefault();
+    const form = new FormData(e.target, e.submitter),
+      mode = String(form.get('mode')),
+      finger = Number(form.get('finger')),
+      other = Number(form.get('otherFinger')),
+      hand = String(form.get('hand')),
+      seed = String(form.get('seed')).trim(),
+      keys = [...String(form.get('keys'))];
+    let groups,
+      title,
+      gradual = false;
+    if (mode === 'finger') {
+      groups = [fingerKeys(language(), learned(), finger)];
+      if (finger === 8)
+        groups[0].push(
+          ...[...learnedCharacters(lessons(), 0)].filter((char) => char !== ' ').slice(0, 2),
+        );
+      title = finger === 8 ? 'Большой палец и опорные клавиши' : fingers[finger];
+      gradual = [0, 1, 6, 7].includes(finger);
+    } else if (mode === 'fingers') {
+      groups =
+        finger === 8
+          ? [fingerKeys(language(), learned(), other), [' ']]
+          : [fingerKeys(language(), learned(), finger), fingerKeys(language(), learned(), other)];
+      title = `${fingers[finger]} + ${fingers[other]}`;
+      gradual = [0, 1, 6, 7].includes(finger) || [0, 1, 6, 7].includes(other);
+    } else if (mode === 'hand') {
+      groups = [handKeys(language(), learned(), hand)];
+      title = hand === 'left' ? 'Левая рука' : 'Правая рука';
+    } else if (mode === 'hands') {
+      groups = [handKeys(language(), learned(), 'left'), handKeys(language(), learned(), 'right')];
+      title = 'Чередование рук';
+    } else if (mode === 'keys') {
+      if (!keys.some((char) => char !== ' ') || keys.some((char) => !learned().has(char))) {
+        $('#exercise-error').textContent =
+          'Введите изученные клавиши, включая хотя бы одну букву или знак.';
+        return;
+      }
+      groups = [keys];
+      title = `Указанные клавиши [${keys.map((char) => (char === ' ' ? '␠' : char)).join(' ')}]`;
+    } else {
+      return;
+    }
+    if (mode === 'fingers' && finger === other) {
+      $('#exercise-error').textContent = 'Выберите два разных пальца.';
+      return;
+    }
+    if (!startGenerated(groups, title, gradual, seed))
+      $('#exercise-error').textContent = 'В выбранном уроке пока нет клавиш для этого упражнения.';
+    return;
+  }
   if (e.target.id === 'practice-form') {
     e.preventDefault();
     customText = $('#custom-text').value;
