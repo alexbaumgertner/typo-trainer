@@ -1,4 +1,5 @@
 import { html } from './ui/html.js';
+import { HandMotion, handPose } from './ui/hand-motion.js';
 import {
   builtinLanguages,
   fingers,
@@ -11,6 +12,8 @@ import {
 } from './course.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
 const $ = (s) => document.querySelector(s);
+const handMotion = new HandMotion();
+let handSurface = null;
 const esc = (s) =>
   String(s).replace(
     /[&<>"']/g,
@@ -75,6 +78,7 @@ function toast(message) {
   toast.timer = setTimeout(() => $('#toast').classList.remove('visible'), 4500);
 }
 function stopSession() {
+  handMotion.stop();
   if (session?.status === 'running') session.pause();
   session = null;
 }
@@ -213,6 +217,7 @@ function keyboard() {
     <div class="keyboard-heading">
       <h2>Клавиатура · ${esc(language().layout)}</h2>
       <div class="keyboard-options">
+        <button class="text-button" data-action="hand-demo">Показать движение</button>
         <label class="check-label"
           ><input id="hands" type="checkbox" ${data.settings.hands ? 'checked' : ''} />Показать
           руки</label
@@ -683,7 +688,7 @@ function bindSettings() {
       );
     });
 }
-function renderTyping() {
+function renderTyping(handOptions = {}) {
   if (!session || !$('#typing-text')) return;
   $('#typing-text').innerHTML = Array.from(session.text)
     .map(
@@ -734,7 +739,7 @@ function renderTyping() {
       ? '<div class="pause-cover"><strong>Небольшая пауза</strong><button class="primary" data-action="pause">Продолжить →</button></div>'
       : '';
   updateClock();
-  updateKeyboard();
+  updateKeyboard(handOptions);
 }
 function updateClock() {
   if (!session || !$('#live-time')) return;
@@ -744,9 +749,11 @@ function updateClock() {
   $('#live-speed').textContent = session.attempts ? session.speed() : 0;
 }
 setInterval(updateClock, 500);
-function updateKeyboard() {
+function updateKeyboard(handOptions = {}) {
   const expected = session
-      ? session.text[session.position]
+      ? ['paused', 'done'].includes(session.status)
+        ? ''
+        : session.text[session.position]
       : view === 'learn'
         ? lesson().text[0]
         : '',
@@ -765,12 +772,17 @@ function updateKeyboard() {
             ${fingers[info.finger]}</strong
           >${info.shift ? ` + ${info.finger < 4 ? 'правый' : 'левый'} Shift` : ''}`
       : '<span class="hint-symbol">→</span> Каждому пальцу — своя зона.';
-  updateHandOverlay(info, expected);
+  updateHandOverlay(info, expected, handOptions);
 }
-function updateHandOverlay(info, expected) {
+function updateHandOverlay(info, expected, options) {
   const keyboard = $('.keyboard'),
     svg = $('#keyboard-hands');
+  handMotion.stop();
   if (!keyboard || !svg) return;
+  if (handSurface !== svg) {
+    handMotion.current = null;
+    handSurface = svg;
+  }
   keyboard.classList.toggle('hands-visible', data.settings.hands);
   svg.toggleAttribute('hidden', !data.settings.hands);
   if (!data.settings.hands) return;
@@ -804,16 +816,16 @@ function updateHandOverlay(info, expected) {
     : null;
   const shiftFinger = info?.shift ? (info.finger < 4 ? 7 : 0) : null;
   const shiftTarget = info?.shift ? point(info.finger < 4 ? '#shift-right' : '#shift-left') : null;
-  const finger = (root, tip, f, active) =>
+  const finger = (root, tip, f, active, rootY) =>
     html`<g
       class="overlay-finger ${fingerClasses[f]} ${active ? 'active' : ''}"
       data-hand-finger="${f}"
       ><path
-        d="M ${root.x - radius} ${baseY} C ${root.x - radius} ${baseY - unit * 0.6}, ${tip.x -
+        d="M ${root.x - radius} ${rootY} C ${root.x - radius} ${rootY - unit * 0.6}, ${tip.x -
         radius} ${tip.y + unit * 0.45}, ${tip.x - radius} ${tip.y} Q ${tip.x - radius} ${tip.y -
         radius}, ${tip.x} ${tip.y - radius} Q ${tip.x + radius} ${tip.y - radius}, ${tip.x +
-        radius} ${tip.y} C ${tip.x + radius} ${tip.y + unit * 0.45}, ${root.x + radius} ${baseY -
-        unit * 0.6}, ${root.x + radius} ${baseY} Z"
+        radius} ${tip.y} C ${tip.x + radius} ${tip.y + unit * 0.45}, ${root.x + radius} ${rootY -
+        unit * 0.6}, ${root.x + radius} ${rootY} Z"
       />${active
         ? html`<circle
             cx="${tip.x}"
@@ -823,46 +835,83 @@ function updateHandOverlay(info, expected) {
           />`
         : ''}</g
     >`;
-  let markup = '';
-  for (const side of [0, 1]) {
-    const indices = side === 0 ? [0, 1, 2, 3] : [4, 5, 6, 7],
-      left = home[indices[0]].x - radius,
-      right = home[indices[3]].x + radius,
-      sign = side === 0 ? 1 : -1,
-      inner = side === 0 ? right : left,
-      wristY = baseY + unit * 1.35;
-    markup += html`<g class="overlay-hand" data-hand="${side === 0 ? 'left' : 'right'}"
-      ><path
-        class="overlay-palm"
-        d="M ${left} ${baseY - 10} Q ${(left + right) / 2} ${baseY - 18} ${right} ${baseY -
-        10} L ${right} ${baseY + unit * 0.45} Q ${right} ${baseY + unit * 0.85} ${right -
-        unit * 0.45} ${baseY + unit} L ${right - unit * 0.45} ${wristY} L ${left +
-        unit * 0.45} ${wristY} L ${left + unit * 0.45} ${baseY + unit} Q ${left} ${baseY +
-        unit * 0.85} ${left} ${baseY + unit * 0.45} Z"
-    /></g>`;
-    for (const f of indices) {
-      const active = f === info?.finger || f === shiftFinger;
-      const tip =
-        f === info?.finger && target
-          ? target
-          : f === shiftFinger && shiftTarget
-            ? shiftTarget
-            : home[f];
-      markup += finger(home[f], tip, f, active);
+  const space = point('#space-key');
+  const thumbs = [
+    { x: Math.max(home[4].x - radius - unit * 0.85, space.x + unit * 0.55), y: space.y },
+    { x: Math.min(home[3].x + radius + unit * 0.85, space.x - unit * 0.55), y: space.y },
+  ];
+  const resting = handPose(home, null, null, null, thumbs, unit);
+  const destination = handPose(
+    home,
+    info?.finger === 8 ? thumbs[0] : target,
+    info,
+    shiftTarget,
+    thumbs,
+    unit,
+  );
+  const draw = (pose) => {
+    if (!svg.isConnected) {
+      handMotion.stop();
+      return;
     }
-    const space = point('#space-key'),
-      thumbX =
-        side === 0
-          ? Math.min(inner + unit * 0.85, space.x - unit * 0.55)
-          : Math.max(inner - unit * 0.85, space.x + unit * 0.55),
-      thumbY = space.y,
-      active = info?.finger === 8 && side === 1;
-    markup += html`<g class="overlay-finger overlay-thumb thumb ${active ? 'active' : ''}" data-hand-finger="${side === 0 ? 9 : 8}"><path d="M ${inner - sign * radius} ${baseY + unit * 0.7} Q ${inner + sign * unit * 0.35} ${baseY + unit * 0.5} ${thumbX - sign * radius} ${thumbY + radius} Q ${thumbX - sign * radius} ${thumbY - radius} ${thumbX} ${thumbY - radius} Q ${thumbX + sign * radius} ${thumbY - radius} ${thumbX + sign * radius} ${thumbY + radius * 0.3} L ${inner + sign * radius * 0.5} ${baseY + unit * 0.9} Z"/>${active ? html`<circle cx="${thumbX}" cy="${thumbY - radius * 0.6}" r="${radius * 0.23}" class="finger-tip" />` : ''}</g></g>`;
-  }
-  svg.innerHTML = markup;
+    let markup = '';
+    for (const side of [0, 1]) {
+      const offset = pose.palms[side],
+        palmY = baseY + offset.y;
+      const indices = side === 0 ? [0, 1, 2, 3] : [4, 5, 6, 7],
+        left = home[indices[0]].x - radius + offset.x,
+        right = home[indices[3]].x + radius + offset.x,
+        sign = side === 0 ? 1 : -1,
+        inner = side === 0 ? right : left,
+        wristY = palmY + unit * 1.35;
+      let hand = html`<path
+        class="overlay-palm"
+        d="M ${left} ${palmY - 10} Q ${(left + right) / 2} ${palmY - 18} ${right} ${palmY -
+        10} L ${right} ${palmY + unit * 0.45} Q ${right} ${palmY + unit * 0.85} ${right -
+        unit * 0.45} ${palmY + unit} L ${right - unit * 0.45} ${wristY} L ${left +
+        unit * 0.45} ${wristY} L ${left + unit * 0.45} ${palmY + unit} Q ${left} ${palmY +
+        unit * 0.85} ${left} ${palmY + unit * 0.45} Z"
+      />`;
+      for (const f of indices) {
+        const active = f === info?.finger || f === shiftFinger;
+        hand += finger({ x: home[f].x + offset.x }, pose.tips[f], f, active, palmY);
+      }
+      const thumb = pose.tips[side === 0 ? 9 : 8],
+        thumbX = thumb.x,
+        thumbY = thumb.y,
+        active = info?.finger === 8 && side === 1;
+      hand += html`<g
+        class="overlay-finger overlay-thumb thumb ${active ? 'active' : ''}"
+        data-hand-finger="${side === 0 ? 9 : 8}"
+        ><path
+          d="M ${inner - sign * radius} ${palmY + unit * 0.7} Q ${inner +
+          sign * unit * 0.35} ${palmY + unit * 0.5} ${thumbX - sign * radius} ${thumbY +
+          radius} Q ${thumbX - sign * radius} ${thumbY - radius} ${thumbX} ${thumbY -
+          radius} Q ${thumbX + sign * radius} ${thumbY - radius} ${thumbX +
+          sign * radius} ${thumbY + radius * 0.3} L ${inner + sign * radius * 0.5} ${palmY +
+          unit * 0.9} Z"
+        />${active
+          ? html`<circle
+              cx="${thumbX}"
+              cy="${thumbY - radius * 0.6}"
+              r="${radius * 0.23}"
+              class="finger-tip"
+            />`
+          : ''}</g
+      >`;
+      markup += html`<g class="overlay-hand" data-hand="${side === 0 ? 'left' : 'right'}">
+        ${hand}
+      </g>`;
+    }
+    svg.innerHTML = markup;
+  };
+  handMotion.move(resting, destination, draw, {
+    ...options,
+    instant: options.instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  });
 }
 window.addEventListener('resize', () => {
-  if (data.settings.hands) updateKeyboard();
+  if (data.settings.hands) updateKeyboard({ instant: true });
 });
 function bindInput() {
   const input = $('#typing-input');
@@ -931,8 +980,8 @@ function bindInput() {
 function processChar(char) {
   if (!session || session.status !== 'running') return;
   session.lastWrong = char;
-  session.type(char);
-  renderTyping();
+  const accepted = session.type(char);
+  renderTyping({ returnHome: accepted });
   if (session.status === 'done') finish();
 }
 function togglePause() {
@@ -1337,6 +1386,13 @@ function applyImport() {
   toast('Профиль, настройки и прогресс перенесены.');
 }
 const actions = {
+  'hand-demo': () => {
+    data.settings.hands = true;
+    save();
+    if ($('#hands')) $('#hands').checked = true;
+    const expected = session?.text[session.position] || lesson().text[0];
+    updateHandOverlay(keyInfo(language(), expected), expected, { demo: true });
+  },
   'start-lesson': startLesson,
   pause: togglePause,
   repeat: () => {

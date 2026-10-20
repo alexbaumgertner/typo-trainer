@@ -8,7 +8,7 @@
     "dev": "node scripts/serve.mjs src",
     "build": "node scripts/build.mjs",
     "preview": "node scripts/serve.mjs dist",
-    "test": "node tests/verify.mjs && node tests/storage.mjs && node tests/html.mjs",
+    "test": "node tests/verify.mjs && node tests/storage.mjs && node tests/html.mjs && node tests/hand-motion.mjs",
     "format": "prettier --write .github src scripts tests package.json README.md .prettierrc.json",
     "format:check": "prettier --check .github src scripts tests package.json README.md .prettierrc.json",
     "archive": "npm run build && node scripts/archive.mjs"
