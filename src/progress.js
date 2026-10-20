@@ -18,6 +18,12 @@ export function exerciseKey(text) {
   return `${text.length}-${(first >>> 0).toString(16).padStart(8, '0')}${(second >>> 0).toString(16).padStart(8, '0')}`;
 }
 
+export function recordSessionHelp(session, flags) {
+  if (!session || !['running', 'paused'].includes(session.status)) return;
+  session.helpFlags |= flags;
+  session.hintsUsed = session.helpFlags !== 0;
+}
+
 export function lessonState(profile, language, lesson) {
   const completed = (profile.progress[language]?.[lesson] ?? 0) >= PASS_ACCURACY;
   const check = profile.reinforcement?.[language]?.[lesson];

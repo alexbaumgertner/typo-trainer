@@ -29,6 +29,7 @@ import {
   lessonState,
   localDay,
   recordLessonResult,
+  recordSessionHelp,
 } from './progress.js';
 const $ = (s) => document.querySelector(s);
 const handMotion = new HandMotion();
@@ -117,8 +118,8 @@ function completed(id) {
 }
 function newSession(text) {
   const created = new TypingSession(text);
-  created.helpFlags = currentHelpFlags();
-  created.hintsUsed = created.helpFlags !== 0;
+  created.helpFlags = 0;
+  created.hintsUsed = false;
   return created;
 }
 function mastered(id) {
@@ -144,9 +145,7 @@ function currentHelpFlags() {
     : 0;
 }
 function recordHelp() {
-  if (!session || session.status === 'done') return;
-  session.helpFlags |= currentHelpFlags();
-  session.hintsUsed = session.helpFlags !== 0;
+  if (session) recordSessionHelp(session, currentHelpFlags());
 }
 function helpLabel(flags) {
   if (flags === 0) return 'без подсказок';
@@ -1446,6 +1445,7 @@ function startLesson(repeatText = null, repeatTitle = null) {
   tab = 'training';
   render();
   session.start();
+  recordHelp();
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
 }
@@ -1494,6 +1494,7 @@ function startPractice(text, title, kind = 'practice') {
   view = 'practice';
   render();
   session.start();
+  recordHelp();
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
 }

@@ -5,8 +5,25 @@ import {
   lessonState,
   localDay,
   recordLessonResult,
+  recordSessionHelp,
 } from '../src/progress.js';
+import { TypingSession } from '../src/course.js';
 import { emptyProfile, makeBackup, parseBackup } from '../src/storage.js';
+
+const pending = new TypingSession('ф');
+pending.helpFlags = 0;
+pending.hintsUsed = false;
+recordSessionHelp(pending, 55);
+assert.equal(pending.helpFlags, 0, 'подсказки до начала не учитываются');
+pending.start(0);
+recordSessionHelp(pending, 0);
+assert.equal(pending.hintsUsed, false, 'выключение до начала оставляет проверку самостоятельной');
+recordSessionHelp(pending, 7);
+recordSessionHelp(pending, 0);
+assert.equal(pending.helpFlags, 7, 'подсказка во время попытки остаётся учтённой');
+pending.type('ф', 100);
+recordSessionHelp(pending, 8);
+assert.equal(pending.helpFlags, 7, 'изменения после завершения не меняют результат');
 
 const profile = emptyProfile();
 const attempt = (day, accuracy, hintsUsed) => ({
