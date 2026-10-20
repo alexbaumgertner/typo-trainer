@@ -18,6 +18,7 @@ async function include(relativePath) {
 
 // Include only the maintainable project, never Git metadata or hosting credentials.
 for (const path of [
+  '.github/',
   'src/',
   'scripts/',
   'tests/',
