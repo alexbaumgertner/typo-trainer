@@ -23,6 +23,14 @@ import {
 } from './exercises.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
 import { hintLevel, refreshKeyTooltips } from './hints.js';
+import {
+  comparisonKey,
+  exerciseKey,
+  lessonState,
+  localDay,
+  recordLessonResult,
+  recordSessionHelp,
+} from './progress.js';
 const $ = (s) => document.querySelector(s);
 const handMotion = new HandMotion();
 let handSurface = null;
@@ -64,6 +72,7 @@ let view = 'learn',
   sessionLesson = null,
   customText = '',
   retrainingSetup = false;
+let chartGroup = '';
 function language() {
   return languages[languageId];
 }
@@ -105,7 +114,50 @@ function stopSession() {
   session = null;
 }
 function completed(id) {
-  return (data.progress[languageId]?.[id] || 0) >= 95;
+  return lessonState(data, languageId, id).completed;
+}
+function newSession(text) {
+  const created = new TypingSession(text);
+  created.helpFlags = 0;
+  created.hintsUsed = false;
+  return created;
+}
+function mastered(id) {
+  return lessonState(data, languageId, id).mastered;
+}
+function reinforcementHint(id) {
+  const state = lessonState(data, languageId, id);
+  if (!state.completed || state.mastered) return '';
+  if (!state.firstPassedDay)
+    return 'Старое достижение сохранено. Для закрепления нужны две новые попытки от 95% в разные дни; вторую проведите без подсказок.';
+  return localDay() > state.firstPassedDay
+    ? 'Самостоятельную проверку можно пройти сейчас: выключите схему клавиатуры и достигните точности от 95%.'
+    : 'Вернитесь к уроку в другой календарный день и пройдите его без подсказок с точностью от 95%.';
+}
+function currentHelpFlags() {
+  return data.settings.guidance
+    ? 1 |
+        (data.settings.colors ? 2 : 0) |
+        (data.settings.letters ? 4 : 0) |
+        (data.settings.hands ? 8 : 0) |
+        (currentHintLevel() !== 'none' ? 16 : 0) |
+        (currentHintLevel() === 'full' ? 32 : 0)
+    : 0;
+}
+function recordHelp() {
+  if (session) recordSessionHelp(session, currentHelpFlags());
+}
+function helpLabel(flags) {
+  if (flags === 0) return 'без подсказок';
+  return [
+    'клавиатура',
+    flags & 2 ? 'зоны' : '',
+    flags & 4 ? 'буквы' : '',
+    flags & 8 ? 'руки' : '',
+    flags & 32 ? 'палец' : flags & 16 ? 'следующая клавиша' : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
 }
 function currentHintLevel() {
   return hintLevel(data.settings.hintMode, data.progress[languageId], lessons().length);
@@ -137,8 +189,14 @@ function sidebar() {
           title="${esc(l.title)}"
           ${view === 'learn' && l.id === lessonIndex ? 'aria-current="step"' : ''}
         >
-          <span class="lesson-num ${completed(l.id) ? 'done' : ''}"
-            >${completed(l.id) ? '✓' : String(l.id + 1).padStart(2, '0')}</span
+          <span
+            class="lesson-num ${mastered(l.id) ? 'mastered' : completed(l.id) ? 'done' : ''}"
+            title="${mastered(l.id) ? 'Закреплено' : completed(l.id) ? 'Выполнено' : 'В процессе'}"
+            >${mastered(l.id)
+              ? '★'
+              : completed(l.id)
+                ? '✓'
+                : String(l.id + 1).padStart(2, '0')}</span
           ><span>${l.title}</span
           ><span class="lesson-arrow">${view === 'learn' && l.id === lessonIndex ? '›' : ''}</span>
         </button>`
@@ -146,7 +204,7 @@ function sidebar() {
     })
     .join('');
   const done = lessons().filter((l) => completed(l.id)).length;
-  $('#course-count').textContent = `${done} / ${lessons().length}`;
+  $('#course-count').textContent = `${done} / ${lessons().length} выполнено`;
   $('#course-fill').style.width = `${(100 * done) / lessons().length}%`;
   document.querySelectorAll('.nav').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
@@ -253,7 +311,11 @@ function keyMarkup(char, row, col) {
       </div>`;
 }
 function keyboard() {
-  return html`<section class="keyboard-card" aria-label="Подсказка клавиатуры">
+  return html`<section
+    class="keyboard-card"
+    aria-label="Подсказка клавиатуры"
+    ${session && !data.settings.guidance ? 'hidden' : ''}
+  >
     <div class="keyboard-heading">
       <h2>Клавиатура · ${esc(language().layout)}</h2>
       <div class="keyboard-options">
@@ -454,6 +516,14 @@ function learnPage() {
         ? 'Познакомьтесь с клавиатурой. Найдите опору для каждого пальца.'
         : 'Новые движения, немного теории и спокойная практика.'}
     </p>
+    <p class="progress-explainer">
+      <strong
+        >${mastered(l.id) ? 'Закреплено ★' : completed(l.id) ? 'Выполнено ✓' : 'В процессе'}</strong
+      >
+      · «Выполнено» — точность от 95% в одной попытке. «Закреплено» — ещё одна попытка от 95% без
+      подсказок в другой календарный день. Это ориентиры курса, не научно установленные пороги.
+      ${reinforcementHint(l.id)}
+    </p>
     <div class="lesson-tabs">
       <button class="lesson-tab ${tab === 'lecture' ? 'active' : ''}" data-tab="lecture">
         <span class="tab-dot">1</span>Небольшая лекция</button
@@ -536,7 +606,8 @@ function trainingMarkup() {
   if (!session) prepareLessonSession();
   return html`<div class="stats-strip">
       <div class="live-stat">
-        <span>СКОРОСТЬ</span><b id="live-speed">0</b><small>зн/мин</small>
+        <span>СКОРОСТЬ</span><b id="live-speed">${data.settings.hideSpeed ? '—' : '0'}</b
+        ><small>зн/мин</small>
       </div>
       <div class="live-stat"><span>ТОЧНОСТЬ</span><b id="live-accuracy">100%</b></div>
       <div class="live-stat"><span>ВРЕМЯ</span><b id="live-time">0:00</b></div>
@@ -545,6 +616,19 @@ function trainingMarkup() {
           ? '<span>ДРУГИМ ПАЛЬЦЕМ</span><b id="live-finger-marks">0</b><small>самопроверка</small>'
           : '<span>ЦЕЛЬ</span><b>95%</b><small>точности</small>'}
       </div>
+    </div>
+    <div class="training-options">
+      <label class="check-label"
+        ><input id="hide-speed" type="checkbox" ${data.settings.hideSpeed ? 'checked' : ''} />Скрыть
+        скорость во время набора</label
+      >
+      <label class="check-label"
+        ><input
+          id="guidance"
+          type="checkbox"
+          ${data.settings.guidance ? 'checked' : ''}
+        />Показывать подсказки клавиатуры</label
+      >
     </div>
     <section class="typing-card">
       <div class="typing-top">
@@ -767,22 +851,32 @@ ${esc(customText)}</textarea
 function progressPage() {
   const history = data.history.filter((h) => h.language === languageId),
     passed = lessons().filter((l) => completed(l.id)).length,
+    secured = lessons().filter((l) => mastered(l.id)).length,
     total = history.reduce((n, h) => n + h.duration, 0),
-    best = Math.max(0, ...history.map((h) => h.speed));
+    groups = [...new Set(history.map(comparisonKey).filter(Boolean))];
+  if (!groups.includes(chartGroup)) chartGroup = groups.at(-1) ?? '';
+  const comparison = history.filter((h) => comparisonKey(h) === chartGroup).slice(-10),
+    best = Math.max(0, ...comparison.map((h) => h.speed));
   return html`<div class="breadcrumb">
       Мой прогресс <span>›</span><span class="current">${esc(language().name)}</span>
     </div>
     <p class="eyebrow">КАЖДОЕ НАЖАТИЕ — ШАГ ВПЕРЁД</p>
     <h1>Ваш ритм становится увереннее</h1>
     <p class="subtitle">Результаты завершённых занятий для выбранного языка.</p>
+    <p class="progress-explainer">
+      «Выполнено» — одна попытка с точностью от 95%. «Закреплено» — повторная попытка от 95% без
+      подсказок в другой календарный день. Старые выполненные уроки сохранены; если у старой попытки
+      нет даты или данных о подсказках, для закрепления нужны две новые проверки в разные дни.
+      Пороги — ориентиры курса.
+    </p>
     <div class="progress-cards">
       <div class="progress-card">
-        <span>Пройдено уроков</span><b>${passed} <small>/ ${lessons().length}</small></b
-        ><small>С точностью от 95%</small>
+        <span>Выполнено</span><b>${passed} <small>/ ${lessons().length}</small></b
+        ><small>Точность от 95%</small>
       </div>
       <div class="progress-card">
-        <span>Лучшая скорость</span><b>${best} <small>зн/мин</small></b
-        ><small>По завершённым тренировкам</small>
+        <span>Закреплено</span><b>${secured} <small>/ ${lessons().length}</small></b
+        ><small>Повтор без подсказок в другой день</small>
       </div>
       <div class="progress-card">
         <span>Время практики</span><b>${Math.round(total / 60000)} <small>мин</small></b
@@ -792,29 +886,46 @@ function progressPage() {
     <section class="history-card">
       <h2>История занятий</h2>
       ${history.length
-        ? html`<div
-              class="history-chart"
-              role="img"
-              aria-label="Скорость последних ${Math.min(history.length, 10)} занятий: ${history
-                .slice(-10)
-                .map((h) => h.speed)
-                .join(', ')} знаков в минуту"
-            >
-              ${history
-                .slice(-10)
-                .map(
-                  (h) =>
-                    html`<div
-                      class="chart-column"
-                      style="height:${Math.max(3, (h.speed / Math.max(best, 1)) * 100)}%"
-                    >
-                      <span>${h.speed}</span>
-                    </div>`,
-                )
-                .join('')}
-            </div>
+        ? html`${groups.length
+              ? html`<label class="field chart-picker"
+                  >Сравнение скорости
+                  <select id="chart-group">
+                    ${groups
+                      .map((key) => {
+                        const [id, exercise, flags] = key.split(':');
+                        return html`<option value="${key}" ${key === chartGroup ? 'selected' : ''}>
+                          Урок ${Number(id) + 1} · текст ${exercise.slice(-4)} ·
+                          ${helpLabel(Number(flags))}
+                        </option>`;
+                      })
+                      .join('')}
+                  </select>
+                </label>`
+              : ''}
+            ${comparison.length
+              ? html`<div
+                  class="history-chart"
+                  role="img"
+                  aria-label="Скорость сопоставимых занятий: ${comparison
+                    .map((h) => h.speed)
+                    .join(', ')} знаков в минуту"
+                >
+                  ${comparison
+                    .map(
+                      (h) =>
+                        html`<div
+                          class="chart-column"
+                          style="height:${Math.max(3, (h.speed / Math.max(best, 1)) * 100)}%"
+                        >
+                          <span>${h.speed}</span>
+                        </div>`,
+                    )
+                    .join('')}
+                </div>`
+              : '<p class="form-note">Для сравнения скорости завершите урок. Старые занятия без сведений о подсказках и тексте не включены в график.</p>'}
             <p class="chart-caption">
-              Последние занятия · знаков в минуту. Скорость зависит от сложности текста.
+              Последние 10 попыток одного текста урока с одинаковым режимом подсказок · знаков в
+              минуту. Разные упражнения и условия помощи не смешиваются.
             </p>
             <div style="overflow:auto">
               <table class="history-table">
@@ -824,6 +935,7 @@ function progressPage() {
                     <th>Занятие</th>
                     <th>Скорость</th>
                     <th>Точность</th>
+                    <th>Подсказки</th>
                     <th>Другим пальцем</th>
                   </tr>
                 </thead>
@@ -846,7 +958,18 @@ function progressPage() {
                             ${h.accuracy}%
                           </td>
                           <td>
-                            ${Object.values(h.fingerMarks || {}).reduce((sum, n) => sum + n, 0)}
+                            ${h.helpFlags !== undefined
+                              ? helpLabel(h.helpFlags)
+                              : h.hintsUsed === undefined
+                                ? 'Нет данных'
+                                : h.hintsUsed
+                                  ? 'Да'
+                                  : 'Нет'}
+                          </td>
+                          <td>
+                            ${h.kind !== 'retraining' || h.fingerMarks === undefined
+                              ? 'Нет данных'
+                              : Object.values(h.fingerMarks).reduce((sum, n) => sum + n, 0)}
                           </td>
                         </tr>`,
                     )
@@ -881,16 +1004,35 @@ function render() {
   }
   updateKeyboard();
   bindSettings();
+  $('#chart-group')?.addEventListener('change', (event) => {
+    chartGroup = event.target.value;
+    render();
+  });
+  $('#hide-speed')?.addEventListener('change', (event) => {
+    data.settings.hideSpeed = event.target.checked;
+    save();
+    updateClock();
+    if (session?.status === 'running') $('#typing-input')?.focus({ preventScroll: true });
+  });
+  $('#guidance')?.addEventListener('change', (event) => {
+    data.settings.guidance = event.target.checked;
+    recordHelp();
+    $('.keyboard-card')?.toggleAttribute('hidden', !event.target.checked);
+    save();
+    if (session?.status === 'running') $('#typing-input')?.focus({ preventScroll: true });
+  });
 }
 function bindSettings() {
   $('#hint-mode')?.addEventListener('change', (event) => {
     data.settings.hintMode = event.target.value;
+    recordHelp();
     save();
     updateKeyboard();
   });
   for (const setting of ['colors', 'letters', 'hands'])
     $(`#${setting}`)?.addEventListener('change', (e) => {
       data.settings[setting] = e.target.checked;
+      recordHelp();
       save();
       if (setting === 'hands') {
         updateKeyboard();
@@ -941,7 +1083,9 @@ function renderTyping(handOptions = {}) {
         ? 'Начать →'
         : session.retry
           ? 'Повторить сочетание →'
-          : 'Продолжить →';
+          : session.status === 'done'
+            ? 'Повторить →'
+            : 'Продолжить →';
   let feedback = session.wrong
     ? 'Ошибка. Нажмите Backspace и попробуйте ещё раз.'
     : session.retry
@@ -983,7 +1127,11 @@ function updateClock() {
   const seconds = Math.floor(session.time() / 1000);
   $('#live-time').textContent =
     `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-  $('#live-speed').textContent = session.attempts ? session.speed() : 0;
+  $('#live-speed').textContent = data.settings.hideSpeed
+    ? '—'
+    : session.attempts
+      ? session.speed()
+      : 0;
 }
 setInterval(updateClock, 500);
 function updateKeyboard(handOptions = {}) {
@@ -1223,7 +1371,12 @@ function bindInput() {
     for (const c of chars) processChar(c);
   });
   input.addEventListener('blur', (e) => {
-    if (e.relatedTarget?.closest('[data-action="pause"], [data-action="mark-finger"]')) return;
+    if (
+      e.relatedTarget?.closest(
+        '[data-action="pause"], [data-action="mark-finger"], #hide-speed, #guidance',
+      )
+    )
+      return;
     if (session?.status === 'running') {
       session.pause();
       renderTyping();
@@ -1268,8 +1421,15 @@ document.addEventListener('keydown', (e) => {
 });
 function togglePause() {
   if (!session) return;
+  if (session.status === 'done') {
+    actions.repeat();
+    return;
+  }
   if (session.status === 'running') session.pause();
-  else if (['ready', 'paused'].includes(session.status)) session.start();
+  else if (['ready', 'paused'].includes(session.status)) {
+    session.start();
+    recordHelp();
+  }
   renderTyping();
   if (session.status === 'running') $('#typing-input').focus({ preventScroll: true });
 }
@@ -1279,22 +1439,24 @@ document.addEventListener('visibilitychange', () => {
     renderTyping();
   }
 });
-function startLesson() {
+function startLesson(repeatText = null, repeatTitle = null) {
   stopSession();
-  prepareLessonSession();
+  prepareLessonSession(repeatText, repeatTitle);
   tab = 'training';
   render();
   session.start();
+  recordHelp();
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
 }
-function prepareLessonSession() {
+function prepareLessonSession(repeatText = null, repeatTitle = null) {
   const current = lesson();
   sessionKind = 'lesson';
   sessionLesson = current.id;
   sessionTitle = current.title;
-  let text = current.text;
-  if (current.keys) {
+  let text = repeatText ?? current.text;
+  if (repeatText !== null) sessionTitle = repeatTitle ?? current.title;
+  else if (current.keys) {
     const seed = newExerciseSeed();
     const keys = [...current.keys];
     const groups =
@@ -1320,18 +1482,19 @@ function prepareLessonSession() {
     });
     sessionTitle = `${current.title} · seed ${seed}`;
   }
-  session = new TypingSession(text);
+  session = newSession(text);
 }
 function startPractice(text, title, kind = 'practice') {
   stopSession();
   sessionKind = kind;
   sessionLesson = null;
   sessionTitle = title;
-  session = new TypingSession(text);
+  session = newSession(text);
   retrainingSetup = false;
   view = 'practice';
   render();
   session.start();
+  recordHelp();
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
 }
@@ -1340,11 +1503,12 @@ function modal(content) {
   if (!$('#dialog').open) $('#dialog').showModal();
 }
 function closeModal() {
-  $('#dialog').close();
+  if ($('#dialog').open) $('#dialog').close();
 }
 function finish() {
   const result = {
     date: new Date().toISOString(),
+    localDay: localDay(),
     language: languageId,
     kind: sessionKind,
     lesson: sessionLesson,
@@ -1355,18 +1519,15 @@ function finish() {
     mistakes: session.mistakes,
     fingerMarks: session.fingerMarks,
     length: session.text.length,
+    exerciseKey: exerciseKey(session.text),
     presentations: session.presentations(),
     errorPositions: session.errorPositions,
+    hintsUsed: session.hintsUsed,
+    helpFlags: session.helpFlags,
   };
   data.history.push(result);
   data.history = data.history.slice(-500);
-  if (result.kind === 'lesson') {
-    data.progress[languageId] ??= {};
-    data.progress[languageId][result.lesson] = Math.max(
-      data.progress[languageId][result.lesson] || 0,
-      result.accuracy,
-    );
-  }
+  if (result.kind === 'lesson') recordLessonResult(data, result);
   save();
   sidebar();
   const passed = result.accuracy >= 95,
@@ -1375,6 +1536,14 @@ function finish() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5),
     next = sessionKind === 'lesson' && lessonIndex < lessons().length - 1;
+  const nextAction =
+    !passed || weak.length || fingerMarkCount
+      ? ['repeat', 'Повторить движение →']
+      : result.hintsUsed
+        ? ['repeat-no-hints', 'Попробовать без подсказок →']
+        : next
+          ? ['next', 'Следующий урок →']
+          : ['repeat', 'Повторить движение →'];
   modal(
     html`<div class="result-icon">${passed ? '✦' : '⌁'}</div>
       <h1 class="result-heading">
@@ -1387,7 +1556,9 @@ function finish() {
       <p class="dialog-subtitle" style="text-align:center">
         ${sessionKind === 'lesson'
           ? passed
-            ? 'Урок пройден. Можно двигаться дальше.'
+            ? mastered(result.lesson)
+              ? 'Урок закреплён. Самостоятельная проверка в другой день пройдена.'
+              : `Урок выполнен. ${reinforcementHint(result.lesson)}`
             : 'Для прохождения урока нужна точность от 95%. Попробуйте ещё раз без спешки.'
           : 'Тренировка завершена. Результат сохранён.'}
       </p>
@@ -1399,14 +1570,20 @@ function finish() {
           ? html`<div><b>${fingerMarkCount}</b><span>отметок другого пальца</span></div>`
           : ''}
       </div>
+      <p class="dialog-subtitle" style="text-align:center">
+        Подсказки:
+        ${helpLabel(result.helpFlags)}${sessionKind === 'retraining'
+          ? ` · Отметки другого пальца: ${fingerMarkCount}`
+          : ''}
+      </p>
       <div class="result-note">
         ${weak.length
-          ? html`Стоит повторить:
+          ? html`Больше всего ошибок на клавишах:
               <strong
                 >${weak
                   .map(([c, n]) => `${esc(c === ' ' ? 'пробел' : c)} (${n})`)
                   .join(', ')}</strong
-              >. Упражнение на эти клавиши доступно в разделе «Практика».`
+              >.`
           : sessionKind === 'retraining' && fingerMarkCount
             ? 'Опечаток нет. Отмеченные движения пальцев можно повторить в следующем упражнении.'
             : 'Ни одной ошибки. Сохраните этот спокойный темп в следующем упражнении.'}<br />Скорость:
@@ -1417,11 +1594,7 @@ function finish() {
           : ''}
       </div>
       <div class="result-actions">
-        <button class="secondary" data-action="repeat">Повторить</button>${next && passed
-          ? '<button class="primary" data-action="next">Следующий урок →</button>'
-          : '<button class="primary" data-action="show-progress">Мой прогресс →</button>'}${weak.length
-          ? '<button class="text-button" data-action="practice-weak">Трудные клавиши</button>'
-          : ''}
+        <button class="primary" data-action="${nextAction[0]}">${nextAction[1]}</button>
       </div>`,
   );
 }
@@ -1678,6 +1851,7 @@ function saveProfileInputs() {
     data.settings[key] = $(`#profile-${key}`).checked;
     if ($(`#${key}`)) $(`#${key}`).checked = data.settings[key];
   }
+  recordHelp();
   $('.keyboard')?.classList.toggle('colored', data.settings.colors);
   $('.keyboard')?.classList.toggle('no-letters', !data.settings.letters);
   updateKeyboard();
@@ -1724,11 +1898,16 @@ async function readImport(event) {
       (total, records) => total + Object.values(records).filter((a) => a >= 95).length,
       0,
     );
+    const secured = Object.values(pendingImport.reinforcement).reduce(
+      (total, records) =>
+        total + Object.values(records).filter((record) => record.masteredDay).length,
+      0,
+    );
     $('#import-preview').innerHTML = html`<div class="import-preview">
       <h3>Файл готов к применению</h3>
       <p>
         <strong>${esc(pendingImport.profile.name || 'Профиль без имени')}</strong> · ${passed}
-        пройденных уроков · ${pendingImport.history.length} занятий ·
+        выполненных уроков · ${secured} закреплённых · ${pendingImport.history.length} занятий ·
         ${Object.keys(pendingImport.customLanguages).length} добавленных раскладок
       </p>
       <p class="form-note">
@@ -1771,6 +1950,7 @@ function applyImport() {
 const actions = {
   'hand-demo': () => {
     data.settings.hands = true;
+    recordHelp();
     save();
     if ($('#hands')) $('#hands').checked = true;
     const expected = session?.text[session.position] || lesson().text[0];
@@ -1778,12 +1958,17 @@ const actions = {
   },
   'start-lesson': startLesson,
   pause: togglePause,
+  'repeat-no-hints': () => {
+    data.settings.guidance = false;
+    save();
+    actions.repeat();
+  },
   repeat: () => {
     const text = session?.text,
       title = sessionTitle,
       kind = sessionKind;
     closeModal();
-    if (kind === 'lesson') startLesson();
+    if (kind === 'lesson') startLesson(text, title);
     else if (text) startPractice(text, title, kind);
   },
   next: () => {
@@ -1840,12 +2025,13 @@ const actions = {
   'apply-import': applyImport,
   'reset-progress': () =>
     modal(
-      '<h2>Сбросить историю занятий?</h2><p class="dialog-subtitle">Будут удалены результаты всех языков в этом браузере. Добавленные раскладки останутся. Перед сбросом можно скачать прогресс.</p><div class="row-actions"><button class="secondary" data-action="export">Скачать прогресс</button><button class="primary" data-action="confirm-reset">Удалить историю</button></div>',
+      '<h2>Сбросить историю и достижения?</h2><p class="dialog-subtitle">Будут удалены результаты всех языков, состояния «Выполнено» и «Закреплено». Добавленные раскладки останутся. Перед сбросом можно скачать прогресс.</p><div class="row-actions"><button class="secondary" data-action="export">Скачать прогресс</button><button class="primary" data-action="confirm-reset">Удалить результаты</button></div>',
     ),
   'confirm-reset': () => {
     data.history = [];
     data.progress = {};
     data.fingerMarks = {};
+    data.reinforcement = {};
     save();
     closeModal();
     render();
