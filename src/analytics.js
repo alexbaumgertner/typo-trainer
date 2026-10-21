@@ -1,8 +1,8 @@
-// Anonymous product analytics (PostHog EU). Disabled until POSTHOG_KEY is set.
+// Anonymous product analytics (PostHog EU). Disabled when POSTHOG_KEY is empty.
 // Never pass typed text, custom practice text, the profile name or imported file contents here.
 
 export const ANALYTICS_CONFIG = {
-  POSTHOG_KEY: '',
+  POSTHOG_KEY: 'phc_npeeU9PsVH4MewaFFn99ob8JcKkmrdWtnyr9trAPsuFY',
   POSTHOG_HOST: 'https://eu.i.posthog.com',
   POSTHOG_SDK_URL: 'https://eu-assets.i.posthog.com/static/module.js',
 };
@@ -34,6 +34,8 @@ const MAX_QUEUE = 50;
 
 /** True when a key is configured, so the UI knows whether statistics can be collected at all. */
 export function analyticsAvailable() {
+  // Automated browsers (Playwright, CI) must not pollute production statistics.
+  if (typeof navigator !== 'undefined' && navigator.webdriver) return false;
   return Boolean(config.POSTHOG_KEY);
 }
 
