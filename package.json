@@ -8,16 +8,21 @@
     "dev": "node scripts/serve.mjs src",
     "build": "node scripts/build.mjs",
     "preview": "node scripts/serve.mjs dist",
-    "test": "node tests/verify.mjs && node tests/exercises.mjs && node tests/storage.mjs && node tests/progress.mjs && node tests/hints.mjs && node tests/html.mjs && node tests/hand-motion.mjs",
+    "test": "npm run test:unit",
     "format": "prettier --write .github src scripts tests package.json README.md .prettierrc.json",
     "format:check": "prettier --check .github src scripts tests package.json README.md .prettierrc.json",
-    "archive": "npm run build && node scripts/archive.mjs"
+    "archive": "npm run build && node scripts/archive.mjs",
+    "test:unit": "node tests/verify.mjs && node tests/exercises.mjs && node tests/storage.mjs && node tests/progress.mjs && node tests/hints.mjs && node tests/html.mjs && node tests/hand-motion.mjs && node --test tests/*.test.mjs",
+    "test:smoke": "npm run build && playwright test -c tests/playwright.config.mjs --grep @smoke",
+    "test:e2e": "npm run build && playwright test -c tests/playwright.config.mjs",
+    "test:all": "npm run test:unit && npm run test:e2e"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "prettier": "3.6.2",
-    "fflate": "0.8.2"
+    "@playwright/test": "1.64.1",
+    "fflate": "0.8.2",
+    "prettier": "3.6.2"
   }
 }
