@@ -22,6 +22,7 @@ import {
   generateExercise,
 } from './exercises.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
+import { analyticsAvailable, initAnalytics, setAnalyticsEnabled, track } from './analytics.js';
 import { hintLevel, refreshKeyTooltips } from './hints.js';
 import {
   comparisonKey,
@@ -70,6 +71,8 @@ let view = 'learn',
   sessionKind = 'lesson',
   sessionTitle = '',
   sessionLesson = null,
+  sessionIsRepeat = false,
+  sessionPractice = '',
   customText = '',
   retrainingSetup = false;
 let chartGroup = '';
@@ -108,7 +111,35 @@ function toast(message) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => $('#toast').classList.remove('visible'), 4500);
 }
+function layoutName() {
+  return languageId === 'ru' || languageId === 'en' ? languageId : 'custom';
+}
+// The movement-hint mode (auto/always/off); never anything the user typed.
+function hintMode() {
+  return data.settings.hintMode;
+}
+function reportAbandoned(options) {
+  if (!session || session.status === 'done' || !session.attempts) return;
+  track(
+    'lesson_abandoned',
+    {
+      lessonId: sessionKind === 'lesson' ? sessionLesson : undefined,
+      practiceType: sessionKind === 'lesson' ? undefined : sessionPractice,
+      layout: layoutName(),
+      hintMode: hintMode(),
+      progress: Math.round((100 * session.position) / session.text.length) / 100,
+    },
+    options,
+  );
+}
+function reportHintChange(setting) {
+  const enabled = typeof data.settings[setting] === 'boolean' ? data.settings[setting] : undefined;
+  const props = { setting, enabled, hintMode: hintMode() };
+  if (setting === 'hands') track('hands_overlay_toggled', props);
+  else track('hint_mode_changed', props);
+}
 function stopSession() {
+  reportAbandoned();
   handMotion.stop();
   if (session?.status === 'running') session.pause();
   session = null;
@@ -1017,6 +1048,7 @@ function render() {
   $('#guidance')?.addEventListener('change', (event) => {
     data.settings.guidance = event.target.checked;
     recordHelp();
+    reportHintChange('guidance');
     $('.keyboard-card')?.toggleAttribute('hidden', !event.target.checked);
     save();
     if (session?.status === 'running') $('#typing-input')?.focus({ preventScroll: true });
@@ -1027,6 +1059,7 @@ function bindSettings() {
     data.settings.hintMode = event.target.value;
     recordHelp();
     save();
+    reportHintChange('hintMode');
     updateKeyboard();
   });
   for (const setting of ['colors', 'letters', 'hands'])
@@ -1034,6 +1067,7 @@ function bindSettings() {
       data.settings[setting] = e.target.checked;
       recordHelp();
       save();
+      reportHintChange(setting);
       if (setting === 'hands') {
         updateKeyboard();
         return;
@@ -1443,6 +1477,7 @@ function startLesson(repeatText = null, repeatTitle = null) {
   stopSession();
   prepareLessonSession(repeatText, repeatTitle);
   tab = 'training';
+  track('lesson_started', { lessonId: sessionLesson, layout: layoutName(), hintMode: hintMode() });
   render();
   session.start();
   recordHelp();
@@ -1453,6 +1488,7 @@ function prepareLessonSession(repeatText = null, repeatTitle = null) {
   const current = lesson();
   sessionKind = 'lesson';
   sessionLesson = current.id;
+  sessionIsRepeat = completed(current.id);
   sessionTitle = current.title;
   let text = repeatText ?? current.text;
   if (repeatText !== null) sessionTitle = repeatTitle ?? current.title;
@@ -1484,9 +1520,11 @@ function prepareLessonSession(repeatText = null, repeatTitle = null) {
   }
   session = newSession(text);
 }
-function startPractice(text, title, kind = 'practice') {
+function startPractice(text, title, kind = 'practice', type = kind) {
   stopSession();
   sessionKind = kind;
+  sessionPractice = type;
+  track('practice_mode_selected', { practiceType: type, layout: layoutName() });
   sessionLesson = null;
   sessionTitle = title;
   session = newSession(text);
@@ -1529,6 +1567,15 @@ function finish() {
   data.history = data.history.slice(-500);
   if (result.kind === 'lesson') recordLessonResult(data, result);
   save();
+  if (result.kind === 'lesson')
+    track('lesson_completed', {
+      lessonId: result.lesson,
+      accuracy: result.accuracy,
+      charsPerMinute: result.speed,
+      durationSec: Math.round(result.duration / 1000),
+      hintMode: hintMode(),
+      isRepeat: sessionIsRepeat,
+    });
   sidebar();
   const passed = result.accuracy >= 95,
     fingerMarkCount = Object.values(result.fingerMarks).reduce((sum, n) => sum + n, 0),
@@ -1638,7 +1685,7 @@ function newExerciseSeed() {
     '-',
   );
 }
-function startGenerated(groups, title, gradual = false, seed = '') {
+function startGenerated(groups, title, gradual = false, seed = '', type = 'weak') {
   const chosenSeed = seed || newExerciseSeed();
   const text = generateExercise({
     language: language(),
@@ -1648,7 +1695,7 @@ function startGenerated(groups, title, gradual = false, seed = '') {
     gradual,
   });
   if (!text) return false;
-  startPractice(text, `${title} · seed ${chosenSeed}`);
+  startPractice(text, `${title} · seed ${chosenSeed}`, 'practice', type);
   return true;
 }
 function addLanguage() {
@@ -1747,6 +1794,27 @@ function addLanguage() {
       </form>`,
   );
 }
+function analyticsSection() {
+  if (!analyticsAvailable())
+    return html`<p class="form-note" id="analytics-note">
+      Статистика использования не собирается: в этой версии она не подключена.
+    </p>`;
+  return html`<div class="profile-options">
+      <label class="check-label"
+        ><input
+          id="profile-analytics"
+          type="checkbox"
+          ${data.settings.analytics ? 'checked' : ''}
+        />Анонимная статистика использования</label
+      >
+    </div>
+    <p class="form-note" id="analytics-note">
+      Собираем только обезличенные данные: какие уроки начаты и пройдены, точность, скорость, время,
+      выбранные подсказки и режимы практики. Не передаём то, что вы печатаете, свой текст, имя и
+      содержимое файлов; cookie и идентификатор не сохраняются. Отключить можно здесь в любой
+      момент.
+    </p>`;
+}
 function openProfile() {
   if (session?.status === 'running') {
     session.pause();
@@ -1808,6 +1876,7 @@ function openProfile() {
             </select>
           </label>
         </div>
+        ${analyticsSection()}
         <p id="profile-save-state" class="form-note" role="status">
           Изменения сохраняются автоматически.
         </p>
@@ -1842,13 +1911,23 @@ function openProfile() {
     saveProfileInputs();
   });
   $('#import-file').addEventListener('change', readImport);
+  $('#profile-analytics')?.addEventListener('change', (e) => {
+    data.settings.analytics = e.target.checked;
+    save();
+    setAnalyticsEnabled(data.settings.analytics);
+    if (data.settings.analytics) track('settings_changed', { setting: 'analytics', enabled: true });
+  });
 }
 function saveProfileInputs() {
   data.profile.name = $('#profile-name').value.trim();
+  const hintModeChanged = data.settings.hintMode !== $('#profile-hint-mode').value;
   data.settings.hintMode = $('#profile-hint-mode').value;
+  if (hintModeChanged) reportHintChange('hintMode');
   if ($('#hint-mode')) $('#hint-mode').value = data.settings.hintMode;
   for (const key of ['colors', 'letters', 'hands']) {
+    const changed = data.settings[key] !== $(`#profile-${key}`).checked;
     data.settings[key] = $(`#profile-${key}`).checked;
+    if (changed) reportHintChange(key);
     if ($(`#${key}`)) $(`#${key}`).checked = data.settings[key];
   }
   recordHelp();
@@ -1871,6 +1950,7 @@ function exportProfile() {
     a.href = url;
     a.download = `ritm-profile-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
+    track('profile_exported');
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (error) {
     toast(`Не удалось создать файл: ${error.message}`);
@@ -1937,6 +2017,8 @@ function applyImport() {
   pendingImport = null;
   importRequest++;
   storageAvailable = true;
+  setAnalyticsEnabled(data.settings.analytics);
+  track('profile_imported');
   languages = { ...builtinLanguages, ...data.customLanguages };
   languageId = data.selected;
   lessonIndex = data.lessons[languageId] || 0;
@@ -1969,7 +2051,7 @@ const actions = {
       kind = sessionKind;
     closeModal();
     if (kind === 'lesson') startLesson(text, title);
-    else if (text) startPractice(text, title, kind);
+    else if (text) startPractice(text, title, kind, sessionPractice);
   },
   next: () => {
     closeModal();
@@ -2011,10 +2093,11 @@ const actions = {
   'start-retraining': () => {
     const keys = data.retrainingKeys[languageId] || [];
     if (!keys.length) return;
-    startPractice(retrainingDrill(language(), keys), 'Переучиваюсь', 'retraining');
+    startPractice(retrainingDrill(language(), keys), 'Переучиваюсь', 'retraining', 'retraining');
   },
   'mark-finger': markWrongFinger,
-  'practice-sample': () => startPractice(language().text, 'Текст для разминки'),
+  'practice-sample': () =>
+    startPractice(language().text, 'Текст для разминки', 'practice', 'sample'),
   'practice-weak': () => {
     closeModal();
     weakPractice();
@@ -2190,7 +2273,7 @@ document.addEventListener('submit', (e) => {
       $('#exercise-error').textContent = 'Выберите два разных пальца.';
       return;
     }
-    if (!startGenerated(groups, title, gradual, seed))
+    if (!startGenerated(groups, title, gradual, seed, mode))
       $('#exercise-error').textContent = 'В выбранном уроке пока нет клавиш для этого упражнения.';
     return;
   }
@@ -2203,7 +2286,7 @@ document.addEventListener('submit', (e) => {
       $('#practice-error').textContent = error;
       return;
     }
-    startPractice(t, 'Свой текст');
+    startPractice(t, 'Свой текст', 'practice', 'custom');
   }
   if (e.target.id === 'language-form') {
     e.preventDefault();
@@ -2257,6 +2340,8 @@ document.addEventListener('submit', (e) => {
   }
 });
 lessonIndex = Math.min(lessonIndex, lessons().length - 1);
+initAnalytics(data.settings);
+window.addEventListener('pagehide', () => reportAbandoned({ beacon: true }));
 render();
 if (loadError) toast('Не удалось прочитать сохранённый профиль. Можно восстановить его из файла.');
 else save();

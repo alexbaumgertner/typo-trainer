@@ -47,6 +47,7 @@ delete legacy.settings.hands;
 delete legacy.settings.hintMode;
 delete legacy.settings.guidance;
 delete legacy.settings.hideSpeed;
+delete legacy.settings.analytics;
 delete legacy.retrainingKeys;
 delete legacy.fingerMarks;
 delete legacy.history[0].fingerMarks;
@@ -55,6 +56,19 @@ assert.equal(parseBackup(legacy).settings.hands, false);
 assert.equal(parseBackup(legacy).settings.hintMode, 'auto');
 assert.equal(parseBackup(legacy).settings.guidance, true);
 assert.equal(parseBackup(legacy).settings.hideSpeed, false);
+// Profiles saved before the analytics setting existed default to enabled.
+assert.equal(parseBackup(legacy).settings.analytics, true);
+const legacyFile = { history: legacy.history, settings: { colors: true }, selected: 'en' };
+assert.equal(parseBackup(legacyFile).settings.analytics, true);
+// The choice survives export and import.
+const optedOut = structuredClone(clean);
+optedOut.settings.analytics = false;
+assert.equal(makeBackup(optedOut).data.settings.analytics, false);
+assert.equal(
+  parseBackup(JSON.parse(JSON.stringify(makeBackup(optedOut)))).settings.analytics,
+  false,
+);
+assert.equal(makeBackup(clean).data.settings.analytics, true);
 assert.deepEqual(parseBackup(legacy).retrainingKeys, {});
 assert.equal(parseBackup(legacy).history[0].fingerMarks, undefined);
 const withKeyCounts = structuredClone(clean);
@@ -69,6 +83,7 @@ const reject = (mutate) => {
 reject((v) => (v.version = 999));
 reject((v) => (v.data.settings.hands = 'true'));
 reject((v) => (v.data.settings.hintMode = 'invalid'));
+reject((v) => (v.data.settings.analytics = 'false'));
 reject((v) => (v.data.history[0].accuracy = 101));
 reject((v) => (v.data.history[0].date = 'invalid'));
 reject((v) => (v.data.history[0].duration = -1));
