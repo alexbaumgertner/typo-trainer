@@ -10,6 +10,7 @@ import {
   TypingSession,
 } from './course.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
+import { analyticsAvailable, initAnalytics, setAnalyticsEnabled, track } from './analytics.js';
 const $ = (s) => document.querySelector(s);
 const esc = (s) =>
   String(s).replace(
@@ -47,6 +48,8 @@ let view = 'learn',
   sessionKind = 'lesson',
   sessionTitle = '',
   sessionLesson = null,
+  sessionIsRepeat = false,
+  sessionPractice = '',
   customText = '';
 function language() {
   return languages[languageId];
@@ -74,7 +77,30 @@ function toast(message) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => $('#toast').classList.remove('visible'), 4500);
 }
+function layoutName() {
+  return languageId === 'ru' || languageId === 'en' ? languageId : 'custom';
+}
+// Only which hints are on, never what was typed.
+function hintMode() {
+  const on = ['colors', 'letters', 'hands'].filter((key) => data.settings[key]);
+  return on.length ? on.join('+') : 'none';
+}
+function reportAbandoned(options) {
+  if (!session || session.status === 'done' || !session.attempts) return;
+  track(
+    'lesson_abandoned',
+    {
+      lessonId: sessionKind === 'lesson' ? sessionLesson : undefined,
+      practiceType: sessionKind === 'practice' ? sessionPractice : undefined,
+      layout: layoutName(),
+      hintMode: hintMode(),
+      progress: Math.round((100 * session.position) / session.text.length) / 100,
+    },
+    options,
+  );
+}
 function stopSession() {
+  reportAbandoned();
   if (session?.status === 'running') session.pause();
   session = null;
 }
@@ -668,11 +694,17 @@ function render() {
   updateKeyboard();
   bindSettings();
 }
+function reportHintChange(setting) {
+  const props = { setting, enabled: data.settings[setting], hintMode: hintMode() };
+  if (setting === 'hands') track('hands_overlay_toggled', props);
+  else track('hint_mode_changed', props);
+}
 function bindSettings() {
   for (const setting of ['colors', 'letters', 'hands'])
     $(`#${setting}`)?.addEventListener('change', (e) => {
       data.settings[setting] = e.target.checked;
       save();
+      reportHintChange(setting);
       if (setting === 'hands') {
         updateKeyboard();
         return;
@@ -953,16 +985,20 @@ function startLesson() {
   sessionKind = 'lesson';
   sessionLesson = lesson().id;
   sessionTitle = lesson().title;
+  sessionIsRepeat = (data.progress[languageId]?.[sessionLesson] || 0) > 0;
   session = new TypingSession(lesson().text);
   tab = 'training';
+  track('lesson_started', { lessonId: sessionLesson, layout: layoutName(), hintMode: hintMode() });
   render();
   session.start();
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
 }
-function startPractice(text, title) {
+function startPractice(text, title, type) {
   stopSession();
   sessionKind = 'practice';
+  sessionPractice = type;
+  track('practice_mode_selected', { practiceType: type, layout: layoutName() });
   sessionLesson = null;
   sessionTitle = title;
   session = new TypingSession(text);
@@ -1002,6 +1038,15 @@ function finish() {
     );
   }
   save();
+  if (result.kind === 'lesson')
+    track('lesson_completed', {
+      lessonId: result.lesson,
+      accuracy: result.accuracy,
+      charsPerMinute: result.speed,
+      durationSec: Math.round(result.duration / 1000),
+      hintMode: hintMode(),
+      isRepeat: sessionIsRepeat,
+    });
   sidebar();
   const passed = result.accuracy >= 95,
     weak = Object.entries(session.mistakes)
@@ -1066,8 +1111,8 @@ function weakPractice() {
     .join('');
   if (!chars) {
     toast('Пока нет трудных клавиш. Начнём с исходной позиции.');
-    startPractice(drill(lessons()[0].keys), 'Повторение исходной позиции');
-  } else startPractice(drill(chars, 30), 'Трудные клавиши');
+    startPractice(drill(lessons()[0].keys), 'Повторение исходной позиции', 'weak');
+  } else startPractice(drill(chars, 30), 'Трудные клавиши', 'weak');
 }
 function addLanguage() {
   modal(
@@ -1165,6 +1210,27 @@ function addLanguage() {
       </form>`,
   );
 }
+function analyticsSection() {
+  if (!analyticsAvailable())
+    return html`<p class="form-note" id="analytics-note">
+      Статистика использования не собирается: в этой версии она не подключена.
+    </p>`;
+  return html`<div class="profile-options">
+      <label class="check-label"
+        ><input
+          id="profile-analytics"
+          type="checkbox"
+          ${data.settings.analytics ? 'checked' : ''}
+        />Анонимная статистика использования</label
+      >
+    </div>
+    <p class="form-note" id="analytics-note">
+      Собираем только обезличенные данные: какие уроки начаты и пройдены, точность, скорость, время,
+      выбранные подсказки и режимы практики. Не передаём то, что вы печатаете, свой текст, имя и
+      содержимое файлов; cookie и идентификатор не сохраняются. Отключить можно здесь в любой
+      момент.
+    </p>`;
+}
 function openProfile() {
   if (session?.status === 'running') {
     session.pause();
@@ -1206,6 +1272,7 @@ function openProfile() {
             )
             .join('')}
         </div>
+        ${analyticsSection()}
         <p id="profile-save-state" class="form-note" role="status">
           Изменения сохраняются автоматически.
         </p>
@@ -1239,11 +1306,19 @@ function openProfile() {
     saveProfileInputs();
   });
   $('#import-file').addEventListener('change', readImport);
+  $('#profile-analytics')?.addEventListener('change', (e) => {
+    data.settings.analytics = e.target.checked;
+    save();
+    setAnalyticsEnabled(data.settings.analytics);
+    if (data.settings.analytics) track('settings_changed', { setting: 'analytics', enabled: true });
+  });
 }
 function saveProfileInputs() {
   data.profile.name = $('#profile-name').value.trim();
   for (const key of ['colors', 'letters', 'hands']) {
+    const changed = data.settings[key] !== $(`#profile-${key}`).checked;
     data.settings[key] = $(`#profile-${key}`).checked;
+    if (changed) reportHintChange(key);
     if ($(`#${key}`)) $(`#${key}`).checked = data.settings[key];
   }
   $('.keyboard')?.classList.toggle('colored', data.settings.colors);
@@ -1266,6 +1341,7 @@ function exportProfile() {
     a.download = `ritm-profile-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    track('profile_exported');
   } catch (error) {
     toast(`Не удалось создать файл: ${error.message}`);
   }
@@ -1326,6 +1402,8 @@ function applyImport() {
   pendingImport = null;
   importRequest++;
   storageAvailable = true;
+  setAnalyticsEnabled(data.settings.analytics);
+  track('profile_imported');
   languages = { ...builtinLanguages, ...data.customLanguages };
   languageId = data.selected;
   lessonIndex = data.lessons[languageId] || 0;
@@ -1345,7 +1423,7 @@ const actions = {
       kind = sessionKind;
     closeModal();
     if (kind === 'lesson') startLesson();
-    else if (text) startPractice(text, title);
+    else if (text) startPractice(text, title, sessionPractice);
   },
   next: () => {
     closeModal();
@@ -1373,7 +1451,7 @@ const actions = {
     stopSession();
     render();
   },
-  'practice-sample': () => startPractice(language().text, 'Текст для разминки'),
+  'practice-sample': () => startPractice(language().text, 'Текст для разминки', 'sample'),
   'practice-weak': () => {
     closeModal();
     weakPractice();
@@ -1491,7 +1569,7 @@ document.addEventListener('submit', (e) => {
       $('#practice-error').textContent = error;
       return;
     }
-    startPractice(t, 'Свой текст');
+    startPractice(t, 'Свой текст', 'custom');
   }
   if (e.target.id === 'language-form') {
     e.preventDefault();
@@ -1545,6 +1623,8 @@ document.addEventListener('submit', (e) => {
   }
 });
 lessonIndex = Math.min(lessonIndex, lessons().length - 1);
+initAnalytics(data.settings);
+window.addEventListener('pagehide', () => reportAbandoned({ beacon: true }));
 render();
 if (loadError) toast('Не удалось прочитать сохранённый профиль. Можно восстановить его из файла.');
 else save();

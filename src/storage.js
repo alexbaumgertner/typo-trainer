@@ -4,7 +4,7 @@ export const STORAGE_KEY = 'ritm-v1';
 const BACKUP_FORMAT = 'ritm-profile';
 const BACKUP_VERSION = 1;
 const ROW_LENGTHS = [13, 12, 11, 10];
-const SETTING_KEYS = ['colors', 'letters', 'hands'];
+const SETTING_KEYS = ['colors', 'letters', 'hands', 'analytics'];
 
 export function emptyProfile() {
   return {
@@ -14,7 +14,7 @@ export function emptyProfile() {
     selected: 'ru',
     lessons: {},
     progress: {},
-    settings: { colors: true, letters: true, hands: false },
+    settings: { colors: true, letters: true, hands: false, analytics: true },
   };
 }
 
