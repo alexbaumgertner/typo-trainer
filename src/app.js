@@ -1,4 +1,5 @@
 import { html } from './ui/html.js';
+import { HandMotion, handPose } from './ui/hand-motion.js';
 import {
   builtinLanguages,
   fingers,
@@ -7,11 +8,33 @@ import {
   keyInfo,
   lessonsFor,
   drill,
+  retrainingDrill,
+  homePosition,
   TypingSession,
 } from './course.js';
+import {
+  learnedCharacters,
+  keyStatistics,
+  shiftStatistics,
+  keyLabel,
+  fingerKeys,
+  handKeys,
+  generateExercise,
+} from './exercises.js';
 import { STORAGE_KEY, emptyProfile, parseBackup, makeBackup } from './storage.js';
 import { analyticsAvailable, initAnalytics, setAnalyticsEnabled, track } from './analytics.js';
+import { hintLevel, refreshKeyTooltips } from './hints.js';
+import {
+  comparisonKey,
+  exerciseKey,
+  lessonState,
+  localDay,
+  recordLessonResult,
+  recordSessionHelp,
+} from './progress.js';
 const $ = (s) => document.querySelector(s);
+const handMotion = new HandMotion();
+let handSurface = null;
 const esc = (s) =>
   String(s).replace(
     /[&<>"']/g,
@@ -50,7 +73,9 @@ let view = 'learn',
   sessionLesson = null,
   sessionIsRepeat = false,
   sessionPractice = '',
-  customText = '';
+  customText = '',
+  retrainingSetup = false;
+let chartGroup = '';
 function language() {
   return languages[languageId];
 }
@@ -59,6 +84,15 @@ function lessons() {
 }
 function lesson() {
   return lessons()[Math.min(Math.max(0, lessonIndex), lessons().length - 1)];
+}
+function learned() {
+  return learnedCharacters(lessons(), lessonIndex);
+}
+function recentKeyStats() {
+  return keyStatistics(
+    data.history.filter((h) => h.language === languageId),
+    learned(),
+  );
 }
 function save() {
   try {
@@ -80,10 +114,9 @@ function toast(message) {
 function layoutName() {
   return languageId === 'ru' || languageId === 'en' ? languageId : 'custom';
 }
-// Only which hints are on, never what was typed.
+// The movement-hint mode (auto/always/off); never anything the user typed.
 function hintMode() {
-  const on = ['colors', 'letters', 'hands'].filter((key) => data.settings[key]);
-  return on.length ? on.join('+') : 'none';
+  return data.settings.hintMode;
 }
 function reportAbandoned(options) {
   if (!session || session.status === 'done' || !session.attempts) return;
@@ -91,7 +124,7 @@ function reportAbandoned(options) {
     'lesson_abandoned',
     {
       lessonId: sessionKind === 'lesson' ? sessionLesson : undefined,
-      practiceType: sessionKind === 'practice' ? sessionPractice : undefined,
+      practiceType: sessionKind === 'lesson' ? undefined : sessionPractice,
       layout: layoutName(),
       hintMode: hintMode(),
       progress: Math.round((100 * session.position) / session.text.length) / 100,
@@ -99,13 +132,66 @@ function reportAbandoned(options) {
     options,
   );
 }
+function reportHintChange(setting) {
+  const enabled = typeof data.settings[setting] === 'boolean' ? data.settings[setting] : undefined;
+  const props = { setting, enabled, hintMode: hintMode() };
+  if (setting === 'hands') track('hands_overlay_toggled', props);
+  else track('hint_mode_changed', props);
+}
 function stopSession() {
   reportAbandoned();
+  handMotion.stop();
   if (session?.status === 'running') session.pause();
   session = null;
 }
 function completed(id) {
-  return (data.progress[languageId]?.[id] || 0) >= 95;
+  return lessonState(data, languageId, id).completed;
+}
+function newSession(text) {
+  const created = new TypingSession(text);
+  created.helpFlags = 0;
+  created.hintsUsed = false;
+  return created;
+}
+function mastered(id) {
+  return lessonState(data, languageId, id).mastered;
+}
+function reinforcementHint(id) {
+  const state = lessonState(data, languageId, id);
+  if (!state.completed || state.mastered) return '';
+  if (!state.firstPassedDay)
+    return 'Старое достижение сохранено. Для закрепления нужны две новые попытки от 95% в разные дни; вторую проведите без подсказок.';
+  return localDay() > state.firstPassedDay
+    ? 'Самостоятельную проверку можно пройти сейчас: выключите схему клавиатуры и достигните точности от 95%.'
+    : 'Вернитесь к уроку в другой календарный день и пройдите его без подсказок с точностью от 95%.';
+}
+function currentHelpFlags() {
+  return data.settings.guidance
+    ? 1 |
+        (data.settings.colors ? 2 : 0) |
+        (data.settings.letters ? 4 : 0) |
+        (data.settings.hands ? 8 : 0) |
+        (currentHintLevel() !== 'none' ? 16 : 0) |
+        (currentHintLevel() === 'full' ? 32 : 0)
+    : 0;
+}
+function recordHelp() {
+  if (session) recordSessionHelp(session, currentHelpFlags());
+}
+function helpLabel(flags) {
+  if (flags === 0) return 'без подсказок';
+  return [
+    'клавиатура',
+    flags & 2 ? 'зоны' : '',
+    flags & 4 ? 'буквы' : '',
+    flags & 8 ? 'руки' : '',
+    flags & 32 ? 'палец' : flags & 16 ? 'следующая клавиша' : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+function currentHintLevel() {
+  return hintLevel(data.settings.hintMode, data.progress[languageId], lessons().length);
 }
 function sidebar() {
   $('#profile-label').textContent = data.profile.name || 'Мой профиль';
@@ -134,8 +220,14 @@ function sidebar() {
           title="${esc(l.title)}"
           ${view === 'learn' && l.id === lessonIndex ? 'aria-current="step"' : ''}
         >
-          <span class="lesson-num ${completed(l.id) ? 'done' : ''}"
-            >${completed(l.id) ? '✓' : String(l.id + 1).padStart(2, '0')}</span
+          <span
+            class="lesson-num ${mastered(l.id) ? 'mastered' : completed(l.id) ? 'done' : ''}"
+            title="${mastered(l.id) ? 'Закреплено' : completed(l.id) ? 'Выполнено' : 'В процессе'}"
+            >${mastered(l.id)
+              ? '★'
+              : completed(l.id)
+                ? '✓'
+                : String(l.id + 1).padStart(2, '0')}</span
           ><span>${l.title}</span
           ><span class="lesson-arrow">${view === 'learn' && l.id === lessonIndex ? '›' : ''}</span>
         </button>`
@@ -143,7 +235,7 @@ function sidebar() {
     })
     .join('');
   const done = lessons().filter((l) => completed(l.id)).length;
-  $('#course-count').textContent = `${done} / ${lessons().length}`;
+  $('#course-count').textContent = `${done} / ${lessons().length} выполнено`;
   $('#course-fill').style.width = `${(100 * done) / lessons().length}%`;
   document.querySelectorAll('.nav').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
@@ -214,31 +306,71 @@ function hands() {
   </div>`;
 }
 function keyMarkup(char, row, col) {
+  const choosing = view === 'practice' && retrainingSetup && !session;
+  const selected = (data.retrainingKeys[languageId] || []).includes(char);
   const f = zoneRows[row][col],
     next = session?.text[session.position],
-    info = keyInfo(language(), next || lesson().text[0]);
-  const isNext = info?.row === row && info?.col === col;
-  return html`<div
-    class="key ${fingerClasses[f]} ${row === 2 && [3, 6].includes(col) ? 'home' : ''} ${isNext
-      ? 'next'
-      : ''}"
-    data-key="${row}-${col}"
-    title="${esc(char)} · ${esc(fingers[f])}"
-  >
-    <span class="shift-label"
+    info = keyInfo(language(), next || (view === 'learn' ? lesson().text[0] : ''));
+  const level = currentHintLevel();
+  const isNext = level !== 'none' && info?.row === row && info?.col === col;
+  const classes = `key ${fingerClasses[f]} ${row === 2 && [3, 6].includes(col) ? 'home' : ''} ${isNext ? 'next' : ''} ${choosing && selected ? 'selected' : ''}`;
+  const label = html`<span class="shift-label"
       >${esc(
         language().shift[row]?.[col] === char.toUpperCase()
           ? ''
           : language().shift[row]?.[col] || '',
       )}</span
-    >${esc(char.toUpperCase())}
-  </div>`;
+    >${esc(char.toUpperCase())}`;
+  return choosing
+    ? html`<button
+        type="button"
+        class="${classes}"
+        data-key="${row}-${col}"
+        data-retraining-key="${esc(char)}"
+        aria-pressed="${selected}"
+        aria-label="${esc(char.toUpperCase())}, ${esc(fingers[f])}${selected ? ', выбрана' : ''}"
+        title="${esc(char)} · ${esc(fingers[f])}"
+      >
+        ${label}
+      </button>`
+    : html`<div
+        class="${classes}"
+        data-key="${row}-${col}"
+        title="${esc(char)}${level === 'full' ? ` · ${esc(fingers[f])}` : ''}"
+      >
+        ${label}
+      </div>`;
 }
 function keyboard() {
-  return html`<section class="keyboard-card" aria-label="Подсказка клавиатуры">
+  return html`<section
+    class="keyboard-card"
+    aria-label="Подсказка клавиатуры"
+    ${session && !data.settings.guidance ? 'hidden' : ''}
+  >
     <div class="keyboard-heading">
       <h2>Клавиатура · ${esc(language().layout)}</h2>
       <div class="keyboard-options">
+        <button class="text-button" data-action="hand-demo">Показать движение</button>
+        <label class="check-label hint-mode-label" for="hint-mode"
+          >Подсказки
+          <select id="hint-mode" aria-label="Режим подсказок">
+            ${[
+              ['auto', 'Авто'],
+              ['always', 'Всегда'],
+              ['off', 'Выкл.'],
+            ]
+              .map(
+                ([value, label]) =>
+                  html`<option
+                    value="${value}"
+                    ${data.settings.hintMode === value ? 'selected' : ''}
+                  >
+                    ${label}
+                  </option>`,
+              )
+              .join('')}
+          </select>
+        </label>
         <label class="check-label"
           ><input id="hands" type="checkbox" ${data.settings.hands ? 'checked' : ''} />Показать
           руки</label
@@ -319,7 +451,7 @@ function keyboard() {
       <p id="finger-hint">
         <span class="hint-symbol">→</span> <strong>Каждому пальцу — своя зона.</strong>
       </p>
-      <p>После нажатия возвращайтесь на основной ряд</p>
+      <p id="hint-explanation"></p>
     </div>
   </section>`;
 }
@@ -415,6 +547,14 @@ function learnPage() {
         ? 'Познакомьтесь с клавиатурой. Найдите опору для каждого пальца.'
         : 'Новые движения, немного теории и спокойная практика.'}
     </p>
+    <p class="progress-explainer">
+      <strong
+        >${mastered(l.id) ? 'Закреплено ★' : completed(l.id) ? 'Выполнено ✓' : 'В процессе'}</strong
+      >
+      · «Выполнено» — точность от 95% в одной попытке. «Закреплено» — ещё одна попытка от 95% без
+      подсказок в другой календарный день. Это ориентиры курса, не научно установленные пороги.
+      ${reinforcementHint(l.id)}
+    </p>
     <div class="lesson-tabs">
       <button class="lesson-tab ${tab === 'lecture' ? 'active' : ''}" data-tab="lecture">
         <span class="tab-dot">1</span>Небольшая лекция</button
@@ -494,14 +634,32 @@ function learnPage() {
     </details>`;
 }
 function trainingMarkup() {
-  if (!session) session = new TypingSession(lesson().text);
+  if (!session) prepareLessonSession();
   return html`<div class="stats-strip">
       <div class="live-stat">
-        <span>СКОРОСТЬ</span><b id="live-speed">0</b><small>зн/мин</small>
+        <span>СКОРОСТЬ</span><b id="live-speed">${data.settings.hideSpeed ? '—' : '0'}</b
+        ><small>зн/мин</small>
       </div>
       <div class="live-stat"><span>ТОЧНОСТЬ</span><b id="live-accuracy">100%</b></div>
       <div class="live-stat"><span>ВРЕМЯ</span><b id="live-time">0:00</b></div>
-      <div class="live-stat"><span>ЦЕЛЬ</span><b>95%</b><small>точности</small></div>
+      <div class="live-stat">
+        ${sessionKind === 'retraining'
+          ? '<span>ДРУГИМ ПАЛЬЦЕМ</span><b id="live-finger-marks">0</b><small>самопроверка</small>'
+          : '<span>ЦЕЛЬ</span><b>95%</b><small>точности</small>'}
+      </div>
+    </div>
+    <div class="training-options">
+      <label class="check-label"
+        ><input id="hide-speed" type="checkbox" ${data.settings.hideSpeed ? 'checked' : ''} />Скрыть
+        скорость во время набора</label
+      >
+      <label class="check-label"
+        ><input
+          id="guidance"
+          type="checkbox"
+          ${data.settings.guidance ? 'checked' : ''}
+        />Показывать подсказки клавиатуры</label
+      >
     </div>
     <section class="typing-card">
       <div class="typing-top">
@@ -526,12 +684,58 @@ function trainingMarkup() {
       ></textarea>
       <div class="typing-message">
         <span id="typing-feedback" role="status">Нажмите «Начать», затем печатайте текст выше.</span
-        ><button class="text-button" data-action="pause" id="pause-button">Начать →</button>
+        >${sessionKind === 'retraining'
+          ? '<button class="secondary" data-action="mark-finger" aria-keyshortcuts="F2">Нажал другим пальцем · F2</button>'
+          : ''}<button class="text-button" data-action="pause" id="pause-button">Начать →</button>
       </div>
       <div id="pause-cover"></div>
     </section>`;
 }
+function retrainingSetupMarkup() {
+  const keys = data.retrainingKeys[languageId] || [];
+  const homes = [0, 1, 2, 3, 6, 7, 8, 9].map((col) => language().rows[2][col]);
+  return html`<section class="practice-form retraining-setup">
+      <h2>Переучиваюсь</h2>
+      <p>
+        Выберите до 8 проблемных клавиш на клавиатуре ниже. Каждая кнопка показывает назначенные
+        руку и палец; повторное нажатие снимает выбор. Для каждой клавиши упражнение добавит
+        возвращение в исходную позицию.
+      </p>
+      <p class="form-note">
+        Браузер не видит, каким пальцем вы нажали клавишу. Отмечайте привычное движение сами кнопкой
+        или клавишей F2 во время набора.
+      </p>
+      <div id="retraining-selection" aria-live="polite">
+        ${keys.length
+          ? html`<ul class="retraining-keys">
+              ${keys
+                .map((key) => {
+                  const finger = keyInfo(language(), key).finger;
+                  return html`<li>
+                    <strong>${esc(key.toUpperCase())}</strong> · ${esc(fingers[finger])} · исходная
+                    ${esc(homes[finger].toUpperCase())}
+                  </li>`;
+                })
+                .join('')}
+            </ul>`
+          : '<p>Пока не выбрана ни одна клавиша.</p>'}
+      </div>
+      <button class="primary" data-action="start-retraining" ${keys.length ? '' : 'disabled'}>
+        Начать короткое упражнение →
+      </button>
+      <button class="text-button" data-action="retraining-close">Другие виды практики</button>
+    </section>
+    ${keyboard()}`;
+}
 function practicePage() {
+  const stats = recentKeyStats(),
+    difficult = stats.filter((stat) => stat.difficult).sort((a, b) => b.lower - a.lower),
+    insufficient = stats.filter((stat) => !stat.sufficient).length,
+    shifts = shiftStatistics(language(), stats);
+  const shiftResult = (side) =>
+    shifts[side].shown >= 12
+      ? `${Math.round((100 * shifts[side].errors) / shifts[side].shown)}% (${shifts[side].errors}/${shifts[side].shown})`
+      : `недостаточно данных (${shifts[side].shown}/12)`;
   return html`<div class="breadcrumb">
       Практика <span>›</span><span class="current">${esc(language().name)}</span>
     </div>
@@ -542,63 +746,168 @@ function practicePage() {
       </div>
       <button class="secondary" data-action="add-language">+ Добавить язык</button>
     </div>
-    <p class="subtitle">Закрепите трудные клавиши или потренируйтесь на своём тексте.</p>
+    <p class="subtitle">
+      Повторите изученные клавиши, выберите палец или руку либо потренируйтесь на своём тексте.
+    </p>
     ${session
-      ? html`${trainingMarkup()}${keyboard()}
+      ? html`${sessionKind === 'retraining'
+            ? '<p class="form-note">Самопроверка: нажмите F2 сразу после клавиши, которую нажали не тем пальцем. Занятие остановится и предложит повторить сочетание.</p>'
+            : ''}${trainingMarkup()}${keyboard()}
           <div class="row-actions">
-            <button class="secondary" data-action="new-practice">Выбрать другой текст</button
+            <button
+              class="secondary"
+              data-action="${sessionKind === 'retraining' ? 'retraining-open' : 'new-practice'}"
+            >
+              ${sessionKind === 'retraining' ? 'Выбрать клавиши' : 'Выбрать другой текст'}</button
             ><button class="text-button" data-action="repeat">Начать заново</button>
           </div>`
-      : html`<div class="choice-grid">
-            <button class="choice" data-action="practice-sample">
-              <strong>Текст для разминки ↗</strong
-              ><span
-                >Спокойная практика на
-                ${esc(language().name === 'English' ? 'английском' : 'выбранном языке')}</span
-              ></button
-            ><button class="choice" data-action="practice-weak">
-              <strong>Трудные клавиши ↗</strong
-              ><span>Упражнение на основе ваших последних ошибок</span>
-            </button>
-          </div>
-          <form id="practice-form" class="practice-form">
-            <label class="field"
-              >Ваш текст<textarea
-                id="custom-text"
-                maxlength="3000"
-                placeholder="Вставьте текст, который хотите научиться печатать…"
-              >
+      : retrainingSetup
+        ? retrainingSetupMarkup()
+        : html`<div class="choice-grid">
+              <button class="choice" data-action="practice-sample">
+                <strong>Текст для разминки ↗</strong
+                ><span
+                  >Спокойная практика на
+                  ${esc(language().name === 'English' ? 'английском' : 'выбранном языке')}</span
+                ></button
+              ><button class="choice" data-action="practice-weak">
+                <strong>Трудные клавиши ↗</strong
+                ><span>По доле ошибок за последние 10 занятий с полной статистикой</span>
+              </button>
+              <button class="choice" data-action="retraining-open">
+                <strong>Переучиваюсь ↗</strong
+                ><span>Выберите клавиши и проверяйте, каким пальцем их нажимаете</span>
+              </button>
+            </div>
+            <section class="practice-form">
+              <h2>Точечная практика</h2>
+              <p class="form-note">
+                Используются клавиши до выбранного урока включительно. Для повторения укажите тот же
+                seed и тот же выбор. Для трудных клавиш можно повторить точный набор символов.
+              </p>
+              <form id="exercise-form">
+                <div class="exercise-fields">
+                  <label class="field"
+                    >Палец
+                    <select name="finger">
+                      ${fingers
+                        .map(
+                          (name, i) =>
+                            html`<option value="${i}">
+                              ${name}${i === 8 ? ' (пробел)' : ''}
+                            </option>`,
+                        )
+                        .join('')}
+                    </select>
+                  </label>
+                  <label class="field"
+                    >Второй палец
+                    <select name="otherFinger">
+                      ${fingers
+                        .map(
+                          (name, i) =>
+                            html`<option value="${i}" ${i === 4 ? 'selected' : ''}>
+                              ${name}${i === 8 ? ' (пробел)' : ''}
+                            </option>`,
+                        )
+                        .join('')}
+                    </select>
+                  </label>
+                  <label class="field"
+                    >Рука
+                    <select name="hand">
+                      <option value="left">Левая</option>
+                      <option value="right">Правая</option>
+                    </select>
+                  </label>
+                  <label class="field"
+                    >Seed для повтора
+                    <input name="seed" maxlength="60" placeholder="Случайный, если пусто" />
+                  </label>
+                  <label class="field"
+                    >Клавиши для точного повтора
+                    <input name="keys" maxlength="20" placeholder="Например: аА " />
+                  </label>
+                </div>
+                <p id="exercise-error" class="form-error" role="alert"></p>
+                <div class="row-actions">
+                  <button class="secondary" name="mode" value="finger">Выбранный палец</button>
+                  <button class="secondary" name="mode" value="fingers">Чередовать пальцы</button>
+                  <button class="secondary" name="mode" value="hand">Выбранная рука</button>
+                  <button class="secondary" name="mode" value="hands">Чередовать руки</button>
+                  <button class="secondary" name="mode" value="keys">Указанные клавиши</button>
+                </div>
+              </form>
+            </section>
+            <section class="practice-form">
+              <h2>Трудные клавиши</h2>
+              <p class="form-note">
+                ${difficult.length
+                  ? difficult
+                      .slice(0, 6)
+                      .map(
+                        (stat) =>
+                          `${esc(keyLabel(language(), stat.char))}: ${Math.round(stat.rate * 100)}% (${stat.errors}/${stat.shown})`,
+                      )
+                      .join(' · ')
+                  : 'Пока нет клавиш с высокой долей ошибок.'}
+                ${insufficient
+                  ? `Недостаточно данных для ${insufficient} изученных клавиш: нужно не менее 12 предъявлений каждой.`
+                  : ''}
+                Пробел и регистр учитываются отдельно. Символы с левым Shift:
+                ${shiftResult('left')}; с правым Shift: ${shiftResult('right')}. Это ошибки при
+                наборе символов с Shift; нельзя установить, была ли ошибка именно в физической
+                клавише Shift.
+              </p>
+            </section>
+            <form id="practice-form" class="practice-form">
+              <label class="field"
+                >Ваш текст<textarea
+                  id="custom-text"
+                  maxlength="3000"
+                  placeholder="Вставьте текст, который хотите научиться печатать…"
+                >
 ${esc(customText)}</textarea
-              >
-            </label>
-            <p class="form-note">
-              До 3000 символов. Переносы строк будут заменены пробелами. Выберите раскладку
-              ${esc(language().layout)} в операционной системе.
-            </p>
-            <p id="practice-error" class="form-error" role="alert"></p>
-            <button class="primary" type="submit">Начать тренировку <span>→</span></button>
-          </form>
-          ${keyboard()}`}`;
+                >
+              </label>
+              <p class="form-note">
+                До 3000 символов. Переносы строк будут заменены пробелами. Выберите раскладку
+                ${esc(language().layout)} в операционной системе.
+              </p>
+              <p id="practice-error" class="form-error" role="alert"></p>
+              <button class="primary" type="submit">Начать тренировку <span>→</span></button>
+            </form>
+            ${keyboard()}`}`;
 }
 function progressPage() {
   const history = data.history.filter((h) => h.language === languageId),
     passed = lessons().filter((l) => completed(l.id)).length,
+    secured = lessons().filter((l) => mastered(l.id)).length,
     total = history.reduce((n, h) => n + h.duration, 0),
-    best = Math.max(0, ...history.map((h) => h.speed));
+    groups = [...new Set(history.map(comparisonKey).filter(Boolean))];
+  if (!groups.includes(chartGroup)) chartGroup = groups.at(-1) ?? '';
+  const comparison = history.filter((h) => comparisonKey(h) === chartGroup).slice(-10),
+    best = Math.max(0, ...comparison.map((h) => h.speed));
   return html`<div class="breadcrumb">
       Мой прогресс <span>›</span><span class="current">${esc(language().name)}</span>
     </div>
     <p class="eyebrow">КАЖДОЕ НАЖАТИЕ — ШАГ ВПЕРЁД</p>
     <h1>Ваш ритм становится увереннее</h1>
     <p class="subtitle">Результаты завершённых занятий для выбранного языка.</p>
+    <p class="progress-explainer">
+      «Выполнено» — одна попытка с точностью от 95%. «Закреплено» — повторная попытка от 95% без
+      подсказок в другой календарный день. Старые выполненные уроки сохранены; если у старой попытки
+      нет даты или данных о подсказках, для закрепления нужны две новые проверки в разные дни.
+      Пороги — ориентиры курса.
+    </p>
     <div class="progress-cards">
       <div class="progress-card">
-        <span>Пройдено уроков</span><b>${passed} <small>/ ${lessons().length}</small></b
-        ><small>С точностью от 95%</small>
+        <span>Выполнено</span><b>${passed} <small>/ ${lessons().length}</small></b
+        ><small>Точность от 95%</small>
       </div>
       <div class="progress-card">
-        <span>Лучшая скорость</span><b>${best} <small>зн/мин</small></b
-        ><small>По завершённым тренировкам</small>
+        <span>Закреплено</span><b>${secured} <small>/ ${lessons().length}</small></b
+        ><small>Повтор без подсказок в другой день</small>
       </div>
       <div class="progress-card">
         <span>Время практики</span><b>${Math.round(total / 60000)} <small>мин</small></b
@@ -608,29 +917,46 @@ function progressPage() {
     <section class="history-card">
       <h2>История занятий</h2>
       ${history.length
-        ? html`<div
-              class="history-chart"
-              role="img"
-              aria-label="Скорость последних ${Math.min(history.length, 10)} занятий: ${history
-                .slice(-10)
-                .map((h) => h.speed)
-                .join(', ')} знаков в минуту"
-            >
-              ${history
-                .slice(-10)
-                .map(
-                  (h) =>
-                    html`<div
-                      class="chart-column"
-                      style="height:${Math.max(3, (h.speed / Math.max(best, 1)) * 100)}%"
-                    >
-                      <span>${h.speed}</span>
-                    </div>`,
-                )
-                .join('')}
-            </div>
+        ? html`${groups.length
+              ? html`<label class="field chart-picker"
+                  >Сравнение скорости
+                  <select id="chart-group">
+                    ${groups
+                      .map((key) => {
+                        const [id, exercise, flags] = key.split(':');
+                        return html`<option value="${key}" ${key === chartGroup ? 'selected' : ''}>
+                          Урок ${Number(id) + 1} · текст ${exercise.slice(-4)} ·
+                          ${helpLabel(Number(flags))}
+                        </option>`;
+                      })
+                      .join('')}
+                  </select>
+                </label>`
+              : ''}
+            ${comparison.length
+              ? html`<div
+                  class="history-chart"
+                  role="img"
+                  aria-label="Скорость сопоставимых занятий: ${comparison
+                    .map((h) => h.speed)
+                    .join(', ')} знаков в минуту"
+                >
+                  ${comparison
+                    .map(
+                      (h) =>
+                        html`<div
+                          class="chart-column"
+                          style="height:${Math.max(3, (h.speed / Math.max(best, 1)) * 100)}%"
+                        >
+                          <span>${h.speed}</span>
+                        </div>`,
+                    )
+                    .join('')}
+                </div>`
+              : '<p class="form-note">Для сравнения скорости завершите урок. Старые занятия без сведений о подсказках и тексте не включены в график.</p>'}
             <p class="chart-caption">
-              Последние занятия · знаков в минуту. Скорость зависит от сложности текста.
+              Последние 10 попыток одного текста урока с одинаковым режимом подсказок · знаков в
+              минуту. Разные упражнения и условия помощи не смешиваются.
             </p>
             <div style="overflow:auto">
               <table class="history-table">
@@ -640,6 +966,8 @@ function progressPage() {
                     <th>Занятие</th>
                     <th>Скорость</th>
                     <th>Точность</th>
+                    <th>Подсказки</th>
+                    <th>Другим пальцем</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -659,6 +987,20 @@ function progressPage() {
                           <td>${h.speed} зн/мин</td>
                           <td style="color:${h.accuracy >= 95 ? '#509c87' : '#bf8b64'}">
                             ${h.accuracy}%
+                          </td>
+                          <td>
+                            ${h.helpFlags !== undefined
+                              ? helpLabel(h.helpFlags)
+                              : h.hintsUsed === undefined
+                                ? 'Нет данных'
+                                : h.hintsUsed
+                                  ? 'Да'
+                                  : 'Нет'}
+                          </td>
+                          <td>
+                            ${h.kind !== 'retraining' || h.fingerMarks === undefined
+                              ? 'Нет данных'
+                              : Object.values(h.fingerMarks).reduce((sum, n) => sum + n, 0)}
                           </td>
                         </tr>`,
                     )
@@ -693,16 +1035,37 @@ function render() {
   }
   updateKeyboard();
   bindSettings();
-}
-function reportHintChange(setting) {
-  const props = { setting, enabled: data.settings[setting], hintMode: hintMode() };
-  if (setting === 'hands') track('hands_overlay_toggled', props);
-  else track('hint_mode_changed', props);
+  $('#chart-group')?.addEventListener('change', (event) => {
+    chartGroup = event.target.value;
+    render();
+  });
+  $('#hide-speed')?.addEventListener('change', (event) => {
+    data.settings.hideSpeed = event.target.checked;
+    save();
+    updateClock();
+    if (session?.status === 'running') $('#typing-input')?.focus({ preventScroll: true });
+  });
+  $('#guidance')?.addEventListener('change', (event) => {
+    data.settings.guidance = event.target.checked;
+    recordHelp();
+    reportHintChange('guidance');
+    $('.keyboard-card')?.toggleAttribute('hidden', !event.target.checked);
+    save();
+    if (session?.status === 'running') $('#typing-input')?.focus({ preventScroll: true });
+  });
 }
 function bindSettings() {
+  $('#hint-mode')?.addEventListener('change', (event) => {
+    data.settings.hintMode = event.target.value;
+    recordHelp();
+    save();
+    reportHintChange('hintMode');
+    updateKeyboard();
+  });
   for (const setting of ['colors', 'letters', 'hands'])
     $(`#${setting}`)?.addEventListener('change', (e) => {
       data.settings[setting] = e.target.checked;
+      recordHelp();
       save();
       reportHintChange(setting);
       if (setting === 'hands') {
@@ -715,7 +1078,7 @@ function bindSettings() {
       );
     });
 }
-function renderTyping() {
+function renderTyping(handOptions = {}) {
   if (!session || !$('#typing-text')) return;
   $('#typing-text').innerHTML = Array.from(session.text)
     .map(
@@ -742,67 +1105,119 @@ function renderTyping() {
   }
   $('#typing-count').textContent = `${session.position} / ${session.text.length} символов`;
   $('#live-accuracy').textContent = `${session.accuracy()}%`;
+  if ($('#live-finger-marks'))
+    $('#live-finger-marks').textContent = Object.values(session.fingerMarks).reduce(
+      (sum, n) => sum + n,
+      0,
+    );
   $('#pause-button').textContent =
     session.status === 'running'
       ? 'Пауза · Esc'
       : session.status === 'ready'
         ? 'Начать →'
-        : 'Продолжить →';
+        : session.retry
+          ? 'Повторить сочетание →'
+          : session.status === 'done'
+            ? 'Повторить →'
+            : 'Продолжить →';
   let feedback = session.wrong
     ? 'Ошибка. Нажмите Backspace и попробуйте ещё раз.'
-    : session.status === 'running'
-      ? 'Печатайте в своём темпе. Смотрите на экран.'
-      : session.status === 'paused'
-        ? 'Пауза. Время остановлено.'
-        : 'Нажмите «Начать», затем печатайте текст выше.';
+    : session.retry
+      ? `Отметили «${session.retry.key.toUpperCase()}»: проверьте исходную позицию и повторите «${session.retry.combo.toUpperCase()}».`
+      : session.status === 'running'
+        ? 'Печатайте в своём темпе. Смотрите на экран.'
+        : session.status === 'paused'
+          ? 'Пауза. Время остановлено.'
+          : 'Нажмите «Начать», затем печатайте текст выше.';
   if (session.wrong && /[a-z]/i.test(session.lastWrong || '') && languageId === 'ru')
     feedback += ' Проверьте русскую раскладку.';
   if (session.wrong && /[а-яё]/i.test(session.lastWrong || '') && languageId === 'en')
     feedback += ' Проверьте английскую раскладку.';
   $('#typing-feedback').textContent = feedback;
   $('#typing-feedback').parentElement.classList.toggle('error', session.wrong);
+  const homeKeys = homePosition(language()).toUpperCase().split(' ');
   $('#pause-cover').innerHTML =
     session.status === 'paused'
-      ? '<div class="pause-cover"><strong>Небольшая пауза</strong><button class="primary" data-action="pause">Продолжить →</button></div>'
+      ? session.retry
+        ? html`<div class="pause-cover" role="status">
+            <strong>Вернитесь в исходную позицию</strong
+            ><span
+              >Левая рука: ${esc(homeKeys.slice(0, 4).join(' '))} · Правая рука:
+              ${esc(homeKeys.slice(4).join(' '))}</span
+            ><span
+              >Клавиша ${esc(session.retry.key.toUpperCase())}:
+              ${esc(fingers[keyInfo(language(), session.retry.key).finger])}</span
+            ><span
+              >Повторите сочетание: <strong>${esc(session.retry.combo.toUpperCase())}</strong></span
+            ><button class="primary" data-action="pause">Повторить сочетание →</button>
+          </div>`
+        : '<div class="pause-cover"><strong>Небольшая пауза</strong><button class="primary" data-action="pause">Продолжить →</button></div>'
       : '';
   updateClock();
-  updateKeyboard();
+  updateKeyboard(handOptions);
 }
 function updateClock() {
   if (!session || !$('#live-time')) return;
   const seconds = Math.floor(session.time() / 1000);
   $('#live-time').textContent =
     `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-  $('#live-speed').textContent = session.attempts ? session.speed() : 0;
+  $('#live-speed').textContent = data.settings.hideSpeed
+    ? '—'
+    : session.attempts
+      ? session.speed()
+      : 0;
 }
 setInterval(updateClock, 500);
-function updateKeyboard() {
+function updateKeyboard(handOptions = {}) {
   const expected = session
-      ? session.text[session.position]
+      ? ['paused', 'done'].includes(session.status)
+        ? ''
+        : session.text[session.position]
       : view === 'learn'
         ? lesson().text[0]
         : '',
-    info = keyInfo(language(), expected || '');
-  document.querySelectorAll('.key.next').forEach((k) => k.classList.remove('next'));
-  if (info) {
+    info = keyInfo(language(), expected || ''),
+    level = currentHintLevel();
+  refreshKeyTooltips(document.querySelectorAll('.keyboard div.key[data-key]'), language(), level);
+  document.querySelectorAll('.key.next, .space.next').forEach((k) => k.classList.remove('next'));
+  if (info && level !== 'none') {
     $(`[data-key="${info.row}-${info.col}"]`)?.classList.add('next');
     if (info.row === 4) $('#space-key')?.classList.add('next');
     if (info.shift) $(info.finger < 4 ? '#shift-right' : '#shift-left')?.classList.add('next');
   }
   if ($('#finger-hint'))
-    $('#finger-hint').innerHTML = info
-      ? html`<span class="hint-symbol">→</span>
-          <strong
-            >${esc(expected === ' ' ? 'Пробел' : expected?.toUpperCase() || '')} ·
-            ${fingers[info.finger]}</strong
-          >${info.shift ? ` + ${info.finger < 4 ? 'правый' : 'левый'} Shift` : ''}`
-      : '<span class="hint-symbol">→</span> Каждому пальцу — своя зона.';
-  updateHandOverlay(info, expected);
+    $('#finger-hint').innerHTML =
+      info && level === 'full'
+        ? html`<span class="hint-symbol">→</span>
+            <strong
+              >${esc(expected === ' ' ? 'Пробел' : expected?.toUpperCase() || '')} ·
+              ${fingers[info.finger]}</strong
+            >${info.shift ? ` + ${info.finger < 4 ? 'правый' : 'левый'} Shift` : ''}`
+        : info && level === 'key'
+          ? 'Следующая клавиша выделена на схеме.'
+          : level === 'none'
+            ? 'Найдите следующую клавишу по памяти.'
+            : 'Каждому пальцу — своя зона.';
+  if ($('#hint-explanation'))
+    $('#hint-explanation').textContent =
+      data.settings.hintMode === 'auto'
+        ? level === 'full'
+          ? 'Авто: показаны клавиша и палец. После 25% уроков останется только клавиша.'
+          : level === 'key'
+            ? 'Авто: показана клавиша. После 50% уроков подсказки исчезнут.'
+            : 'Авто: подсказки скрыты. Их можно вернуть в меню выше.'
+        : 'После нажатия возвращайтесь на основной ряд';
+  updateHandOverlay(level === 'full' ? info : null, expected, handOptions);
 }
-function updateHandOverlay(info, expected) {
+function updateHandOverlay(info, expected, options) {
   const keyboard = $('.keyboard'),
     svg = $('#keyboard-hands');
+  handMotion.stop();
   if (!keyboard || !svg) return;
+  if (handSurface !== svg) {
+    handMotion.current = null;
+    handSurface = svg;
+  }
   keyboard.classList.toggle('hands-visible', data.settings.hands);
   svg.toggleAttribute('hidden', !data.settings.hands);
   if (!data.settings.hands) return;
@@ -836,16 +1251,16 @@ function updateHandOverlay(info, expected) {
     : null;
   const shiftFinger = info?.shift ? (info.finger < 4 ? 7 : 0) : null;
   const shiftTarget = info?.shift ? point(info.finger < 4 ? '#shift-right' : '#shift-left') : null;
-  const finger = (root, tip, f, active) =>
+  const finger = (root, tip, f, active, rootY) =>
     html`<g
       class="overlay-finger ${fingerClasses[f]} ${active ? 'active' : ''}"
       data-hand-finger="${f}"
       ><path
-        d="M ${root.x - radius} ${baseY} C ${root.x - radius} ${baseY - unit * 0.6}, ${tip.x -
+        d="M ${root.x - radius} ${rootY} C ${root.x - radius} ${rootY - unit * 0.6}, ${tip.x -
         radius} ${tip.y + unit * 0.45}, ${tip.x - radius} ${tip.y} Q ${tip.x - radius} ${tip.y -
         radius}, ${tip.x} ${tip.y - radius} Q ${tip.x + radius} ${tip.y - radius}, ${tip.x +
-        radius} ${tip.y} C ${tip.x + radius} ${tip.y + unit * 0.45}, ${root.x + radius} ${baseY -
-        unit * 0.6}, ${root.x + radius} ${baseY} Z"
+        radius} ${tip.y} C ${tip.x + radius} ${tip.y + unit * 0.45}, ${root.x + radius} ${rootY -
+        unit * 0.6}, ${root.x + radius} ${rootY} Z"
       />${active
         ? html`<circle
             cx="${tip.x}"
@@ -855,46 +1270,83 @@ function updateHandOverlay(info, expected) {
           />`
         : ''}</g
     >`;
-  let markup = '';
-  for (const side of [0, 1]) {
-    const indices = side === 0 ? [0, 1, 2, 3] : [4, 5, 6, 7],
-      left = home[indices[0]].x - radius,
-      right = home[indices[3]].x + radius,
-      sign = side === 0 ? 1 : -1,
-      inner = side === 0 ? right : left,
-      wristY = baseY + unit * 1.35;
-    markup += html`<g class="overlay-hand" data-hand="${side === 0 ? 'left' : 'right'}"
-      ><path
-        class="overlay-palm"
-        d="M ${left} ${baseY - 10} Q ${(left + right) / 2} ${baseY - 18} ${right} ${baseY -
-        10} L ${right} ${baseY + unit * 0.45} Q ${right} ${baseY + unit * 0.85} ${right -
-        unit * 0.45} ${baseY + unit} L ${right - unit * 0.45} ${wristY} L ${left +
-        unit * 0.45} ${wristY} L ${left + unit * 0.45} ${baseY + unit} Q ${left} ${baseY +
-        unit * 0.85} ${left} ${baseY + unit * 0.45} Z"
-    /></g>`;
-    for (const f of indices) {
-      const active = f === info?.finger || f === shiftFinger;
-      const tip =
-        f === info?.finger && target
-          ? target
-          : f === shiftFinger && shiftTarget
-            ? shiftTarget
-            : home[f];
-      markup += finger(home[f], tip, f, active);
+  const space = point('#space-key');
+  const thumbs = [
+    { x: Math.max(home[4].x - radius - unit * 0.85, space.x + unit * 0.55), y: space.y },
+    { x: Math.min(home[3].x + radius + unit * 0.85, space.x - unit * 0.55), y: space.y },
+  ];
+  const resting = handPose(home, null, null, null, thumbs, unit);
+  const destination = handPose(
+    home,
+    info?.finger === 8 ? thumbs[0] : target,
+    info,
+    shiftTarget,
+    thumbs,
+    unit,
+  );
+  const draw = (pose) => {
+    if (!svg.isConnected) {
+      handMotion.stop();
+      return;
     }
-    const space = point('#space-key'),
-      thumbX =
-        side === 0
-          ? Math.min(inner + unit * 0.85, space.x - unit * 0.55)
-          : Math.max(inner - unit * 0.85, space.x + unit * 0.55),
-      thumbY = space.y,
-      active = info?.finger === 8 && side === 1;
-    markup += html`<g class="overlay-finger overlay-thumb thumb ${active ? 'active' : ''}" data-hand-finger="${side === 0 ? 9 : 8}"><path d="M ${inner - sign * radius} ${baseY + unit * 0.7} Q ${inner + sign * unit * 0.35} ${baseY + unit * 0.5} ${thumbX - sign * radius} ${thumbY + radius} Q ${thumbX - sign * radius} ${thumbY - radius} ${thumbX} ${thumbY - radius} Q ${thumbX + sign * radius} ${thumbY - radius} ${thumbX + sign * radius} ${thumbY + radius * 0.3} L ${inner + sign * radius * 0.5} ${baseY + unit * 0.9} Z"/>${active ? html`<circle cx="${thumbX}" cy="${thumbY - radius * 0.6}" r="${radius * 0.23}" class="finger-tip" />` : ''}</g></g>`;
-  }
-  svg.innerHTML = markup;
+    let markup = '';
+    for (const side of [0, 1]) {
+      const offset = pose.palms[side],
+        palmY = baseY + offset.y;
+      const indices = side === 0 ? [0, 1, 2, 3] : [4, 5, 6, 7],
+        left = home[indices[0]].x - radius + offset.x,
+        right = home[indices[3]].x + radius + offset.x,
+        sign = side === 0 ? 1 : -1,
+        inner = side === 0 ? right : left,
+        wristY = palmY + unit * 1.35;
+      let hand = html`<path
+        class="overlay-palm"
+        d="M ${left} ${palmY - 10} Q ${(left + right) / 2} ${palmY - 18} ${right} ${palmY -
+        10} L ${right} ${palmY + unit * 0.45} Q ${right} ${palmY + unit * 0.85} ${right -
+        unit * 0.45} ${palmY + unit} L ${right - unit * 0.45} ${wristY} L ${left +
+        unit * 0.45} ${wristY} L ${left + unit * 0.45} ${palmY + unit} Q ${left} ${palmY +
+        unit * 0.85} ${left} ${palmY + unit * 0.45} Z"
+      />`;
+      for (const f of indices) {
+        const active = f === info?.finger || f === shiftFinger;
+        hand += finger({ x: home[f].x + offset.x }, pose.tips[f], f, active, palmY);
+      }
+      const thumb = pose.tips[side === 0 ? 9 : 8],
+        thumbX = thumb.x,
+        thumbY = thumb.y,
+        active = info?.finger === 8 && side === 1;
+      hand += html`<g
+        class="overlay-finger overlay-thumb thumb ${active ? 'active' : ''}"
+        data-hand-finger="${side === 0 ? 9 : 8}"
+        ><path
+          d="M ${inner - sign * radius} ${palmY + unit * 0.7} Q ${inner +
+          sign * unit * 0.35} ${palmY + unit * 0.5} ${thumbX - sign * radius} ${thumbY +
+          radius} Q ${thumbX - sign * radius} ${thumbY - radius} ${thumbX} ${thumbY -
+          radius} Q ${thumbX + sign * radius} ${thumbY - radius} ${thumbX +
+          sign * radius} ${thumbY + radius * 0.3} L ${inner + sign * radius * 0.5} ${palmY +
+          unit * 0.9} Z"
+        />${active
+          ? html`<circle
+              cx="${thumbX}"
+              cy="${thumbY - radius * 0.6}"
+              r="${radius * 0.23}"
+              class="finger-tip"
+            />`
+          : ''}</g
+      >`;
+      markup += html`<g class="overlay-hand" data-hand="${side === 0 ? 'left' : 'right'}">
+        ${hand}
+      </g>`;
+    }
+    svg.innerHTML = markup;
+  };
+  handMotion.move(resting, destination, draw, {
+    ...options,
+    instant: options.instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  });
 }
 window.addEventListener('resize', () => {
-  if (data.settings.hands) updateKeyboard();
+  if (data.settings.hands) updateKeyboard({ instant: true });
 });
 function bindInput() {
   const input = $('#typing-input');
@@ -953,7 +1405,12 @@ function bindInput() {
     for (const c of chars) processChar(c);
   });
   input.addEventListener('blur', (e) => {
-    if (e.relatedTarget?.closest('[data-action="pause"]')) return;
+    if (
+      e.relatedTarget?.closest(
+        '[data-action="pause"], [data-action="mark-finger"], #hide-speed, #guidance',
+      )
+    )
+      return;
     if (session?.status === 'running') {
       session.pause();
       renderTyping();
@@ -963,14 +1420,50 @@ function bindInput() {
 function processChar(char) {
   if (!session || session.status !== 'running') return;
   session.lastWrong = char;
-  session.type(char);
-  renderTyping();
+  const accepted = session.type(char);
+  renderTyping({ returnHome: accepted });
   if (session.status === 'done') finish();
 }
+function markWrongFinger() {
+  if (sessionKind !== 'retraining' || session?.status !== 'running') return;
+  const marked = session.markWrongFinger();
+  if (!marked) {
+    toast(
+      session.wrong
+        ? 'Сначала исправьте опечатку клавишей Backspace.'
+        : 'Сначала напечатайте клавишу.',
+    );
+    return;
+  }
+  data.fingerMarks[languageId] ??= {};
+  data.fingerMarks[languageId][marked.key] = (data.fingerMarks[languageId][marked.key] || 0) + 1;
+  save();
+  renderTyping();
+  $('[data-action="pause"]:is(.pause-cover button)')?.focus();
+}
+document.addEventListener('keydown', (e) => {
+  if (
+    e.key !== 'F2' ||
+    e.repeat ||
+    e.isComposing ||
+    sessionKind !== 'retraining' ||
+    session?.status !== 'running'
+  )
+    return;
+  e.preventDefault();
+  markWrongFinger();
+});
 function togglePause() {
   if (!session) return;
+  if (session.status === 'done') {
+    actions.repeat();
+    return;
+  }
   if (session.status === 'running') session.pause();
-  else if (['ready', 'paused'].includes(session.status)) session.start();
+  else if (['ready', 'paused'].includes(session.status)) {
+    session.start();
+    recordHelp();
+  }
   renderTyping();
   if (session.status === 'running') $('#typing-input').focus({ preventScroll: true });
 }
@@ -980,31 +1473,66 @@ document.addEventListener('visibilitychange', () => {
     renderTyping();
   }
 });
-function startLesson() {
+function startLesson(repeatText = null, repeatTitle = null) {
   stopSession();
-  sessionKind = 'lesson';
-  sessionLesson = lesson().id;
-  sessionTitle = lesson().title;
-  sessionIsRepeat = (data.progress[languageId]?.[sessionLesson] || 0) > 0;
-  session = new TypingSession(lesson().text);
+  prepareLessonSession(repeatText, repeatTitle);
   tab = 'training';
   track('lesson_started', { lessonId: sessionLesson, layout: layoutName(), hintMode: hintMode() });
   render();
   session.start();
+  recordHelp();
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
 }
-function startPractice(text, title, type) {
+function prepareLessonSession(repeatText = null, repeatTitle = null) {
+  const current = lesson();
+  sessionKind = 'lesson';
+  sessionLesson = current.id;
+  sessionIsRepeat = completed(current.id);
+  sessionTitle = current.title;
+  let text = repeatText ?? current.text;
+  if (repeatText !== null) sessionTitle = repeatTitle ?? current.title;
+  else if (current.keys) {
+    const seed = newExerciseSeed();
+    const keys = [...current.keys];
+    const groups =
+      current.id === 14
+        ? [
+            [
+              ...new Set([
+                ...keys,
+                ...keys.map((char) => {
+                  const info = keyInfo(language(), char);
+                  return language().rows[info.row][info.col];
+                }),
+              ]),
+            ],
+          ]
+        : [keys];
+    text = generateExercise({
+      language: language(),
+      learned: learned(),
+      groups,
+      seed,
+      gradual: [2, 3, 8, 12].includes(current.id),
+    });
+    sessionTitle = `${current.title} · seed ${seed}`;
+  }
+  session = newSession(text);
+}
+function startPractice(text, title, kind = 'practice', type = kind) {
   stopSession();
-  sessionKind = 'practice';
+  sessionKind = kind;
   sessionPractice = type;
   track('practice_mode_selected', { practiceType: type, layout: layoutName() });
   sessionLesson = null;
   sessionTitle = title;
-  session = new TypingSession(text);
+  session = newSession(text);
+  retrainingSetup = false;
   view = 'practice';
   render();
   session.start();
+  recordHelp();
   renderTyping();
   $('#typing-input').focus({ preventScroll: true });
 }
@@ -1013,11 +1541,12 @@ function modal(content) {
   if (!$('#dialog').open) $('#dialog').showModal();
 }
 function closeModal() {
-  $('#dialog').close();
+  if ($('#dialog').open) $('#dialog').close();
 }
 function finish() {
   const result = {
     date: new Date().toISOString(),
+    localDay: localDay(),
     language: languageId,
     kind: sessionKind,
     lesson: sessionLesson,
@@ -1026,17 +1555,17 @@ function finish() {
     speed: session.speed(),
     duration: session.time(),
     mistakes: session.mistakes,
+    fingerMarks: session.fingerMarks,
     length: session.text.length,
+    exerciseKey: exerciseKey(session.text),
+    presentations: session.presentations(),
+    errorPositions: session.errorPositions,
+    hintsUsed: session.hintsUsed,
+    helpFlags: session.helpFlags,
   };
   data.history.push(result);
   data.history = data.history.slice(-500);
-  if (result.kind === 'lesson') {
-    data.progress[languageId] ??= {};
-    data.progress[languageId][result.lesson] = Math.max(
-      data.progress[languageId][result.lesson] || 0,
-      result.accuracy,
-    );
-  }
+  if (result.kind === 'lesson') recordLessonResult(data, result);
   save();
   if (result.kind === 'lesson')
     track('lesson_completed', {
@@ -1049,19 +1578,34 @@ function finish() {
     });
   sidebar();
   const passed = result.accuracy >= 95,
+    fingerMarkCount = Object.values(result.fingerMarks).reduce((sum, n) => sum + n, 0),
     weak = Object.entries(session.mistakes)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5),
     next = sessionKind === 'lesson' && lessonIndex < lessons().length - 1;
+  const nextAction =
+    !passed || weak.length || fingerMarkCount
+      ? ['repeat', 'Повторить движение →']
+      : result.hintsUsed
+        ? ['repeat-no-hints', 'Попробовать без подсказок →']
+        : next
+          ? ['next', 'Следующий урок →']
+          : ['repeat', 'Повторить движение →'];
   modal(
     html`<div class="result-icon">${passed ? '✦' : '⌁'}</div>
       <h1 class="result-heading">
-        ${passed ? 'Отлично, ритм найден!' : 'Уже ближе к уверенной печати'}
+        ${sessionKind === 'retraining'
+          ? 'Короткая тренировка завершена'
+          : passed
+            ? 'Отлично, ритм найден!'
+            : 'Уже ближе к уверенной печати'}
       </h1>
       <p class="dialog-subtitle" style="text-align:center">
         ${sessionKind === 'lesson'
           ? passed
-            ? 'Урок пройден. Можно двигаться дальше.'
+            ? mastered(result.lesson)
+              ? 'Урок закреплён. Самостоятельная проверка в другой день пройдена.'
+              : `Урок выполнен. ${reinforcementHint(result.lesson)}`
             : 'Для прохождения урока нужна точность от 95%. Попробуйте ещё раз без спешки.'
           : 'Тренировка завершена. Результат сохранён.'}
       </p>
@@ -1069,25 +1613,35 @@ function finish() {
         <div><b>${result.accuracy}%</b><span>точность</span></div>
         <div><b>${result.speed}</b><span>знаков / мин</span></div>
         <div><b>${Math.round(result.duration / 1000)} с</b><span>активное время</span></div>
+        ${sessionKind === 'retraining'
+          ? html`<div><b>${fingerMarkCount}</b><span>отметок другого пальца</span></div>`
+          : ''}
       </div>
+      <p class="dialog-subtitle" style="text-align:center">
+        Подсказки:
+        ${helpLabel(result.helpFlags)}${sessionKind === 'retraining'
+          ? ` · Отметки другого пальца: ${fingerMarkCount}`
+          : ''}
+      </p>
       <div class="result-note">
         ${weak.length
-          ? html`Стоит повторить:
+          ? html`Больше всего ошибок на клавишах:
               <strong
                 >${weak
                   .map(([c, n]) => `${esc(c === ' ' ? 'пробел' : c)} (${n})`)
                   .join(', ')}</strong
-              >. Упражнение на эти клавиши доступно в разделе «Практика».`
-          : 'Ни одной ошибки. Сохраните этот спокойный темп в следующем упражнении.'}<br />Скорость:
+              >.`
+          : sessionKind === 'retraining' && fingerMarkCount
+            ? 'Опечаток нет. Отмеченные движения пальцев можно повторить в следующем упражнении.'
+            : 'Ни одной ошибки. Сохраните этот спокойный темп в следующем упражнении.'}<br />Скорость:
         правильно набранные символы ÷ активное время в минутах. Точность учитывает все попытки,
         включая исправленные ошибки.
+        ${sessionKind === 'retraining'
+          ? 'Отметки другого пальца сохранены отдельно и не снижают точность.'
+          : ''}
       </div>
       <div class="result-actions">
-        <button class="secondary" data-action="repeat">Повторить</button>${next && passed
-          ? '<button class="primary" data-action="next">Следующий урок →</button>'
-          : '<button class="primary" data-action="show-progress">Мой прогресс →</button>'}${weak.length
-          ? '<button class="text-button" data-action="practice-weak">Трудные клавиши</button>'
-          : ''}
+        <button class="primary" data-action="${nextAction[0]}">${nextAction[1]}</button>
       </div>`,
   );
 }
@@ -1101,18 +1655,48 @@ function validateText(t) {
     : '';
 }
 function weakPractice() {
-  const mistakes = {};
-  for (const h of data.history.filter((h) => h.language === languageId).slice(-10))
-    for (const [c, n] of Object.entries(h.mistakes || {}))
-      if (c !== ' ' && keyInfo(language(), c)) mistakes[c] = (mistakes[c] || 0) + n;
-  const chars = Object.keys(mistakes)
-    .sort((a, b) => mistakes[b] - mistakes[a])
+  const chars = recentKeyStats()
+    .filter((stat) => stat.difficult)
+    .sort((a, b) => b.lower - a.lower)
     .slice(0, 6)
-    .join('');
-  if (!chars) {
-    toast('Пока нет трудных клавиш. Начнём с исходной позиции.');
-    startPractice(drill(lessons()[0].keys), 'Повторение исходной позиции', 'weak');
-  } else startPractice(drill(chars, 30), 'Трудные клавиши', 'weak');
+    .map((stat) => stat.char);
+  const targets = chars.length
+    ? [...chars]
+    : [...learnedCharacters(lessons(), 0)].filter((char) => char !== ' ');
+  if (targets.length < 3) {
+    const anchors = [...learnedCharacters(lessons(), 0)].filter(
+      (char) => char !== ' ' && !targets.includes(char),
+    );
+    targets.push(...anchors.slice(0, 3 - targets.length));
+  }
+  if (!chars.length)
+    toast('Пока недостаточно данных о трудных клавишах. Повторим исходную позицию.');
+  const seed = $('#exercise-form [name="seed"]')?.value.trim() || '';
+  const label = targets.map((char) => (char === ' ' ? '␠' : char)).join(' ');
+  startGenerated(
+    [targets],
+    `${chars.length ? 'Трудные клавиши' : 'Исходная позиция'} [${label}]`,
+    false,
+    seed,
+  );
+}
+function newExerciseSeed() {
+  return Array.from(crypto.getRandomValues(new Uint32Array(2)), (value) => value.toString(36)).join(
+    '-',
+  );
+}
+function startGenerated(groups, title, gradual = false, seed = '', type = 'weak') {
+  const chosenSeed = seed || newExerciseSeed();
+  const text = generateExercise({
+    language: language(),
+    learned: learned(),
+    groups,
+    seed: chosenSeed,
+    gradual,
+  });
+  if (!text) return false;
+  startPractice(text, `${title} · seed ${chosenSeed}`, 'practice', type);
+  return true;
 }
 function addLanguage() {
   modal(
@@ -1271,6 +1855,26 @@ function openProfile() {
                 >`,
             )
             .join('')}
+          <label class="check-label" for="profile-hint-mode"
+            >Подсказки движения
+            <select id="profile-hint-mode">
+              ${[
+                ['auto', 'Авто'],
+                ['always', 'Всегда'],
+                ['off', 'Выкл.'],
+              ]
+                .map(
+                  ([value, label]) =>
+                    html`<option
+                      value="${value}"
+                      ${data.settings.hintMode === value ? 'selected' : ''}
+                    >
+                      ${label}
+                    </option>`,
+                )
+                .join('')}
+            </select>
+          </label>
         </div>
         ${analyticsSection()}
         <p id="profile-save-state" class="form-note" role="status">
@@ -1301,6 +1905,7 @@ function openProfile() {
   $('#profile-name').addEventListener('input', saveProfileInputs);
   for (const key of ['colors', 'letters', 'hands'])
     $(`#profile-${key}`).addEventListener('change', saveProfileInputs);
+  $('#profile-hint-mode').addEventListener('change', saveProfileInputs);
   $('#profile-form').addEventListener('submit', (e) => {
     e.preventDefault();
     saveProfileInputs();
@@ -1315,12 +1920,17 @@ function openProfile() {
 }
 function saveProfileInputs() {
   data.profile.name = $('#profile-name').value.trim();
+  const hintModeChanged = data.settings.hintMode !== $('#profile-hint-mode').value;
+  data.settings.hintMode = $('#profile-hint-mode').value;
+  if (hintModeChanged) reportHintChange('hintMode');
+  if ($('#hint-mode')) $('#hint-mode').value = data.settings.hintMode;
   for (const key of ['colors', 'letters', 'hands']) {
     const changed = data.settings[key] !== $(`#profile-${key}`).checked;
     data.settings[key] = $(`#profile-${key}`).checked;
     if (changed) reportHintChange(key);
     if ($(`#${key}`)) $(`#${key}`).checked = data.settings[key];
   }
+  recordHelp();
   $('.keyboard')?.classList.toggle('colored', data.settings.colors);
   $('.keyboard')?.classList.toggle('no-letters', !data.settings.letters);
   updateKeyboard();
@@ -1340,8 +1950,8 @@ function exportProfile() {
     a.href = url;
     a.download = `ritm-profile-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
     track('profile_exported');
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (error) {
     toast(`Не удалось создать файл: ${error.message}`);
   }
@@ -1368,11 +1978,16 @@ async function readImport(event) {
       (total, records) => total + Object.values(records).filter((a) => a >= 95).length,
       0,
     );
+    const secured = Object.values(pendingImport.reinforcement).reduce(
+      (total, records) =>
+        total + Object.values(records).filter((record) => record.masteredDay).length,
+      0,
+    );
     $('#import-preview').innerHTML = html`<div class="import-preview">
       <h3>Файл готов к применению</h3>
       <p>
         <strong>${esc(pendingImport.profile.name || 'Профиль без имени')}</strong> · ${passed}
-        пройденных уроков · ${pendingImport.history.length} занятий ·
+        выполненных уроков · ${secured} закреплённых · ${pendingImport.history.length} занятий ·
         ${Object.keys(pendingImport.customLanguages).length} добавленных раскладок
       </p>
       <p class="form-note">
@@ -1415,15 +2030,28 @@ function applyImport() {
   toast('Профиль, настройки и прогресс перенесены.');
 }
 const actions = {
+  'hand-demo': () => {
+    data.settings.hands = true;
+    recordHelp();
+    save();
+    if ($('#hands')) $('#hands').checked = true;
+    const expected = session?.text[session.position] || lesson().text[0];
+    updateHandOverlay(keyInfo(language(), expected), expected, { demo: true });
+  },
   'start-lesson': startLesson,
   pause: togglePause,
+  'repeat-no-hints': () => {
+    data.settings.guidance = false;
+    save();
+    actions.repeat();
+  },
   repeat: () => {
     const text = session?.text,
       title = sessionTitle,
       kind = sessionKind;
     closeModal();
-    if (kind === 'lesson') startLesson();
-    else if (text) startPractice(text, title, sessionPractice);
+    if (kind === 'lesson') startLesson(text, title);
+    else if (text) startPractice(text, title, kind, sessionPractice);
   },
   next: () => {
     closeModal();
@@ -1449,9 +2077,27 @@ const actions = {
   },
   'new-practice': () => {
     stopSession();
+    retrainingSetup = false;
     render();
   },
-  'practice-sample': () => startPractice(language().text, 'Текст для разминки', 'sample'),
+  'retraining-open': () => {
+    stopSession();
+    retrainingSetup = true;
+    view = 'practice';
+    render();
+  },
+  'retraining-close': () => {
+    retrainingSetup = false;
+    render();
+  },
+  'start-retraining': () => {
+    const keys = data.retrainingKeys[languageId] || [];
+    if (!keys.length) return;
+    startPractice(retrainingDrill(language(), keys), 'Переучиваюсь', 'retraining', 'retraining');
+  },
+  'mark-finger': markWrongFinger,
+  'practice-sample': () =>
+    startPractice(language().text, 'Текст для разминки', 'practice', 'sample'),
   'practice-weak': () => {
     closeModal();
     weakPractice();
@@ -1462,11 +2108,13 @@ const actions = {
   'apply-import': applyImport,
   'reset-progress': () =>
     modal(
-      '<h2>Сбросить историю занятий?</h2><p class="dialog-subtitle">Будут удалены результаты всех языков в этом браузере. Добавленные раскладки останутся. Перед сбросом можно скачать прогресс.</p><div class="row-actions"><button class="secondary" data-action="export">Скачать прогресс</button><button class="primary" data-action="confirm-reset">Удалить историю</button></div>',
+      '<h2>Сбросить историю и достижения?</h2><p class="dialog-subtitle">Будут удалены результаты всех языков, состояния «Выполнено» и «Закреплено». Добавленные раскладки останутся. Перед сбросом можно скачать прогресс.</p><div class="row-actions"><button class="secondary" data-action="export">Скачать прогресс</button><button class="primary" data-action="confirm-reset">Удалить результаты</button></div>',
     ),
   'confirm-reset': () => {
     data.history = [];
     data.progress = {};
+    data.fingerMarks = {};
+    data.reinforcement = {};
     save();
     closeModal();
     render();
@@ -1505,6 +2153,23 @@ $('.brand').addEventListener('click', (e) => {
   render();
 });
 $('#main').addEventListener('click', (e) => {
+  const key = e.target.closest('[data-retraining-key]');
+  if (key && retrainingSetup && !session) {
+    const value = key.dataset.retrainingKey;
+    const selected = [...(data.retrainingKeys[languageId] || [])];
+    const index = selected.indexOf(value);
+    if (index >= 0) selected.splice(index, 1);
+    else if (selected.length >= 8) {
+      toast('Можно выбрать до 8 клавиш для короткого упражнения.');
+      return;
+    } else selected.push(value);
+    data.retrainingKeys[languageId] = selected;
+    const position = key.dataset.key;
+    save();
+    render();
+    $(`[data-key="${position}"]`)?.focus();
+    return;
+  }
   const b = e.target.closest('[data-tab]');
   if (!b) return;
   const nextTab = b.dataset.tab;
@@ -1560,6 +2225,58 @@ $('#dialog').addEventListener('click', (e) => {
   }
 });
 document.addEventListener('submit', (e) => {
+  if (e.target.id === 'exercise-form') {
+    e.preventDefault();
+    const form = new FormData(e.target, e.submitter),
+      mode = String(form.get('mode')),
+      finger = Number(form.get('finger')),
+      other = Number(form.get('otherFinger')),
+      hand = String(form.get('hand')),
+      seed = String(form.get('seed')).trim(),
+      keys = [...String(form.get('keys'))];
+    let groups,
+      title,
+      gradual = false;
+    if (mode === 'finger') {
+      groups = [fingerKeys(language(), learned(), finger)];
+      if (finger === 8)
+        groups[0].push(
+          ...[...learnedCharacters(lessons(), 0)].filter((char) => char !== ' ').slice(0, 2),
+        );
+      title = finger === 8 ? 'Большой палец и опорные клавиши' : fingers[finger];
+      gradual = [0, 1, 6, 7].includes(finger);
+    } else if (mode === 'fingers') {
+      groups =
+        finger === 8
+          ? [fingerKeys(language(), learned(), other), [' ']]
+          : [fingerKeys(language(), learned(), finger), fingerKeys(language(), learned(), other)];
+      title = `${fingers[finger]} + ${fingers[other]}`;
+      gradual = [0, 1, 6, 7].includes(finger) || [0, 1, 6, 7].includes(other);
+    } else if (mode === 'hand') {
+      groups = [handKeys(language(), learned(), hand)];
+      title = hand === 'left' ? 'Левая рука' : 'Правая рука';
+    } else if (mode === 'hands') {
+      groups = [handKeys(language(), learned(), 'left'), handKeys(language(), learned(), 'right')];
+      title = 'Чередование рук';
+    } else if (mode === 'keys') {
+      if (!keys.some((char) => char !== ' ') || keys.some((char) => !learned().has(char))) {
+        $('#exercise-error').textContent =
+          'Введите изученные клавиши, включая хотя бы одну букву или знак.';
+        return;
+      }
+      groups = [keys];
+      title = `Указанные клавиши [${keys.map((char) => (char === ' ' ? '␠' : char)).join(' ')}]`;
+    } else {
+      return;
+    }
+    if (mode === 'fingers' && finger === other) {
+      $('#exercise-error').textContent = 'Выберите два разных пальца.';
+      return;
+    }
+    if (!startGenerated(groups, title, gradual, seed, mode))
+      $('#exercise-error').textContent = 'В выбранном уроке пока нет клавиш для этого упражнения.';
+    return;
+  }
   if (e.target.id === 'practice-form') {
     e.preventDefault();
     customText = $('#custom-text').value;
@@ -1569,7 +2286,7 @@ document.addEventListener('submit', (e) => {
       $('#practice-error').textContent = error;
       return;
     }
-    startPractice(t, 'Свой текст', 'custom');
+    startPractice(t, 'Свой текст', 'practice', 'custom');
   }
   if (e.target.id === 'language-form') {
     e.preventDefault();

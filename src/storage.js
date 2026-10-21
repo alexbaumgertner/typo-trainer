@@ -4,7 +4,7 @@ export const STORAGE_KEY = 'ritm-v1';
 const BACKUP_FORMAT = 'ritm-profile';
 const BACKUP_VERSION = 1;
 const ROW_LENGTHS = [13, 12, 11, 10];
-const SETTING_KEYS = ['colors', 'letters', 'hands', 'analytics'];
+const SETTING_KEYS = ['colors', 'letters', 'hands', 'guidance', 'hideSpeed', 'analytics'];
 
 export function emptyProfile() {
   return {
@@ -14,7 +14,18 @@ export function emptyProfile() {
     selected: 'ru',
     lessons: {},
     progress: {},
-    settings: { colors: true, letters: true, hands: false, analytics: true },
+    retrainingKeys: {},
+    fingerMarks: {},
+    reinforcement: {},
+    settings: {
+      colors: true,
+      letters: true,
+      hands: false,
+      hintMode: 'auto',
+      guidance: true,
+      hideSpeed: false,
+      analytics: true,
+    },
   };
 }
 
@@ -64,6 +75,13 @@ function readSettings(settings) {
       'Настройки должны содержать переключатели true/false.',
     );
     result[key] = settings[key];
+  }
+  if (settings.hintMode !== undefined) {
+    requireValid(
+      ['auto', 'always', 'off'].includes(settings.hintMode),
+      'Некорректный режим подсказок.',
+    );
+    result.hintMode = settings.hintMode;
   }
   return result;
 }
@@ -155,21 +173,108 @@ function readMistakes(source, language) {
   return mistakes;
 }
 
+function readRetrainingKeys(source, languages) {
+  requireValid(isRecord(source), 'Некорректный выбор клавиш переучивания.');
+  const result = {};
+  for (const [id, keys] of Object.entries(source)) {
+    requireValid(
+      Object.hasOwn(languages, id) && Array.isArray(keys) && keys.length <= 8,
+      'Некорректный выбор клавиш переучивания.',
+    );
+    requireValid(
+      keys.every(
+        (key) =>
+          typeof key === 'string' &&
+          key.length === 1 &&
+          languages[id].rows.some((row) => row.includes(key)),
+      ) && new Set(keys).size === keys.length,
+      'Некорректный выбор клавиш переучивания.',
+    );
+    result[id] = [...keys];
+  }
+  return result;
+}
+
+function readFingerMarks(source, languages) {
+  requireValid(isRecord(source), 'Некорректные отметки пальцев.');
+  const result = {};
+  for (const [id, marks] of Object.entries(source)) {
+    requireValid(Object.hasOwn(languages, id), 'Некорректные отметки пальцев.');
+    result[id] = readMistakes(marks, languages[id]);
+  }
+  return result;
+}
+
+function readKeyCounts(source, language) {
+  requireValid(
+    isRecord(source) && Object.keys(source).length <= 100,
+    'Некорректная статистика клавиш.',
+  );
+  const counts = {};
+  for (const [character, count] of Object.entries(source)) {
+    requireValid(
+      character.length === 1 &&
+        keyInfo(language, character) &&
+        Number.isInteger(count) &&
+        count > 0 &&
+        count <= 100000,
+      'Некорректная статистика клавиш.',
+    );
+    counts[character] = count;
+  }
+  return counts;
+}
+
 function readHistoryEntry(entry, languages) {
   requireValid(
     isRecord(entry) &&
       Object.hasOwn(languages, entry.language) &&
-      ['lesson', 'practice'].includes(entry.kind),
+      ['lesson', 'practice', 'retraining'].includes(entry.kind),
     'Некорректная запись истории занятий.',
   );
   const date = readText(entry.date, 100, 'дата');
   requireValid(Number.isFinite(Date.parse(date)), 'Некорректная дата занятия.');
   const language = languages[entry.language];
   const validLesson =
-    entry.kind === 'practice' ? entry.lesson === null : isLessonIndex(language, entry.lesson);
+    entry.kind === 'lesson' ? isLessonIndex(language, entry.lesson) : entry.lesson === null;
   requireValid(validLesson, 'В истории указан несуществующий урок.');
   const length = readNumber(entry.length, 100000, 'число символов');
   requireValid(Number.isInteger(length), 'Число символов должно быть целым.');
+  const hasKeyCounts = entry.presentations !== undefined || entry.errorPositions !== undefined;
+  requireValid(
+    !hasKeyCounts || (entry.presentations !== undefined && entry.errorPositions !== undefined),
+    'Неполная статистика клавиш.',
+  );
+  const presentations = hasKeyCounts ? readKeyCounts(entry.presentations, language) : undefined;
+  const errorPositions = hasKeyCounts ? readKeyCounts(entry.errorPositions, language) : undefined;
+  if (hasKeyCounts) {
+    requireValid(
+      Object.values(presentations).reduce((sum, n) => sum + n, 0) === length,
+      'Число предъявлений не совпадает с длиной занятия.',
+    );
+    for (const [char, errors] of Object.entries(errorPositions))
+      requireValid(errors <= (presentations[char] || 0), 'Ошибок по клавише больше предъявлений.');
+  }
+  const localDay = entry.localDay === undefined ? null : readDay(entry.localDay);
+  if (entry.hintsUsed !== undefined)
+    requireValid(typeof entry.hintsUsed === 'boolean', 'Некорректное поле подсказок.');
+  if (entry.helpFlags !== undefined)
+    requireValid(
+      Number.isInteger(entry.helpFlags) &&
+        entry.helpFlags >= 0 &&
+        entry.helpFlags <= 63 &&
+        (entry.helpFlags === 0
+          ? entry.hintsUsed === false
+          : entry.hintsUsed === true && (entry.helpFlags & 1) === 1),
+      'Некорректные условия подсказок.',
+    );
+  if (entry.exerciseKey !== undefined)
+    requireValid(
+      typeof entry.exerciseKey === 'string' &&
+        /^\d{1,6}-[0-9a-f]{16}$/.test(entry.exerciseKey) &&
+        Number(entry.exerciseKey.split('-')[0]) === length,
+      'Некорректный идентификатор упражнения.',
+    );
   return {
     date: new Date(date).toISOString(),
     language: entry.language,
@@ -180,8 +285,57 @@ function readHistoryEntry(entry, languages) {
     speed: readNumber(entry.speed, 10000000, 'скорость'),
     duration: readNumber(entry.duration, 31536000000, 'время'),
     mistakes: readMistakes(entry.mistakes ?? {}, language),
+    ...(entry.fingerMarks === undefined
+      ? {}
+      : { fingerMarks: readMistakes(entry.fingerMarks, language) }),
     length,
+    ...(hasKeyCounts ? { presentations, errorPositions } : {}),
+    ...(localDay === null ? {} : { localDay }),
+    ...(entry.hintsUsed === undefined ? {} : { hintsUsed: entry.hintsUsed }),
+    ...(entry.helpFlags === undefined ? {} : { helpFlags: entry.helpFlags }),
+    ...(entry.exerciseKey === undefined ? {} : { exerciseKey: entry.exerciseKey }),
   };
+}
+
+function readDay(day) {
+  requireValid(
+    typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day),
+    'Некорректная дата проверки.',
+  );
+  const parsed = new Date(`${day}T00:00:00.000Z`);
+  requireValid(
+    Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day,
+    'Некорректная дата проверки.',
+  );
+  return day;
+}
+
+function readReinforcement(source, languages) {
+  requireValid(isRecord(source), 'Некорректный прогресс закрепления.');
+  const result = {};
+  for (const [languageId, lessons] of Object.entries(source)) {
+    requireValid(
+      Object.hasOwn(languages, languageId) && isRecord(lessons),
+      'Некорректный прогресс закрепления.',
+    );
+    result[languageId] = {};
+    for (const [index, check] of Object.entries(lessons)) {
+      requireValid(
+        /^(0|[1-9]\d*)$/.test(index) &&
+          isLessonIndex(languages[languageId], Number(index)) &&
+          isRecord(check),
+        'Некорректный урок закрепления.',
+      );
+      const firstPassedDay = readDay(check.firstPassedDay);
+      const masteredDay = check.masteredDay === null ? null : readDay(check.masteredDay);
+      requireValid(
+        masteredDay === null || masteredDay > firstPassedDay,
+        'Проверка закрепления должна быть в другой день.',
+      );
+      result[languageId][index] = { firstPassedDay, masteredDay };
+    }
+  }
+  return result;
 }
 
 function readProgress(source, languages, history) {
@@ -232,9 +386,18 @@ export function parseBackup(input) {
   requireValid(Object.hasOwn(languages, source.selected), 'Выбранного языка нет в файле.');
   result.selected = source.selected;
   result.lessons = readLessonPositions(source.lessons ?? {}, languages);
+  result.retrainingKeys = readRetrainingKeys(source.retrainingKeys ?? {}, languages);
+  result.fingerMarks = readFingerMarks(source.fingerMarks ?? {}, languages);
   requireValid(source.history.length <= 500, 'В файле больше 500 занятий.');
   result.history = source.history.map((entry) => readHistoryEntry(entry, languages));
   result.progress = readProgress(source.progress ?? {}, languages, result.history);
+  result.reinforcement = readReinforcement(source.reinforcement ?? {}, languages);
+  for (const [languageId, lessons] of Object.entries(result.reinforcement))
+    for (const index of Object.keys(lessons))
+      requireValid(
+        (result.progress[languageId]?.[index] ?? 0) >= 95,
+        'Закреплённый урок должен быть выполнен.',
+      );
   return result;
 }
 
