@@ -60,6 +60,8 @@ const withKey = { ...ANALYTICS_CONFIG, POSTHOG_KEY: 'phc_test' };
   assert.equal(options.capture_pageview, false);
   assert.equal(options.respect_dnt, true);
   assert.equal(options.ip, false);
+  assert.equal(options.request_batching, false);
+  assert.deepEqual(options.before_send({ event: 'x' }), { event: 'x' });
 
   track('lesson_completed', {
     lessonId: 3,
@@ -95,6 +97,7 @@ const withKey = { ...ANALYTICS_CONFIG, POSTHOG_KEY: 'phc_test' };
 
   // The user switching statistics off stops sending; switching on resumes.
   setAnalyticsEnabled(false);
+  assert.equal(options.before_send({ event: 'x' }), null);
   track('lesson_started', { lessonId: 4 });
   assert.equal(sdk.events.length, 1);
   setAnalyticsEnabled(true);

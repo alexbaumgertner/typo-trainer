@@ -75,6 +75,10 @@ function ensureClient() {
         disable_surveys: true,
         advanced_disable_flags: true,
         disable_external_dependency_loading: true,
+        // Send each event at once and drop anything captured while the user has opted out,
+        // so no event sits in an SDK-side queue after the switch is turned off.
+        request_batching: false,
+        before_send: (event) => (isActive() ? event : null),
       });
       client = posthog;
       const pending = queue;
