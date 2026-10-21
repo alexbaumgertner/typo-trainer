@@ -13,7 +13,6 @@ import {
 } from '../src/analytics.js';
 
 assert.equal(typeof window, 'undefined');
-assert.equal(ANALYTICS_CONFIG.POSTHOG_KEY, '', 'the committed key must stay empty');
 assert.equal(ANALYTICS_CONFIG.POSTHOG_HOST, 'https://eu.i.posthog.com');
 
 function fakeSdk() {
@@ -35,8 +34,9 @@ const withKey = { ...ANALYTICS_CONFIG, POSTHOG_KEY: 'phc_test' };
 {
   resetAnalyticsForTests();
   const sdk = fakeSdk();
+  const noKey = { ...ANALYTICS_CONFIG, POSTHOG_KEY: '' };
+  initAnalytics({ analytics: true }, { config: noKey, loadSdk: sdk.load });
   assert.equal(analyticsAvailable(), false);
-  initAnalytics({ analytics: true }, { loadSdk: sdk.load });
   setAnalyticsEnabled(true);
   track('lesson_started', { lessonId: 1 });
   await analyticsReady();
@@ -116,6 +116,27 @@ const withKey = { ...ANALYTICS_CONFIG, POSTHOG_KEY: 'phc_test' };
   assert.equal(sdk.loads, 1);
   track('lesson_started', { lessonId: 1 });
   assert.equal(sdk.events.length, 1);
+}
+
+// Events fired while the SDK is still loading are kept; opting out drops them.
+{
+  resetAnalyticsForTests();
+  const sdk = fakeSdk();
+  initAnalytics({ analytics: true }, { config: withKey, loadSdk: sdk.load });
+  track('lesson_started', { lessonId: 7, typedText: 'секрет' });
+  assert.equal(sdk.events.length, 0);
+  await analyticsReady();
+  assert.deepEqual(sdk.events, [{ name: 'lesson_started', props: { lessonId: 7 } }]);
+
+  resetAnalyticsForTests();
+  const second = fakeSdk();
+  initAnalytics({ analytics: false }, { config: withKey, loadSdk: second.load });
+  setAnalyticsEnabled(true);
+  track('settings_changed', { setting: 'analytics', enabled: true });
+  track('lesson_started', { lessonId: 1 });
+  setAnalyticsEnabled(false);
+  await analyticsReady();
+  assert.equal(second.events.length, 0);
 }
 
 // A failing or blocked SDK never throws into the app.

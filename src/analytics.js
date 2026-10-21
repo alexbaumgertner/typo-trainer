@@ -29,6 +29,8 @@ let loadSdk = (url) => import(url);
 let userEnabled = true;
 let client = null;
 let loading = null;
+let queue = [];
+const MAX_QUEUE = 50;
 
 /** True when a key is configured, so the UI knows whether statistics can be collected at all. */
 export function analyticsAvailable() {
@@ -75,6 +77,9 @@ function ensureClient() {
         disable_external_dependency_loading: true,
       });
       client = posthog;
+      const pending = queue;
+      queue = [];
+      if (userEnabled) for (const event of pending) send(event);
     })
     .catch(() => {
       // Blocked or offline: analytics must never affect the trainer.
@@ -99,18 +104,22 @@ export function initAnalytics(settings = {}, options = {}) {
 export function setAnalyticsEnabled(enabled) {
   // track() checks this flag, so no SDK opt-out is needed (it would persist in localStorage).
   userEnabled = Boolean(enabled);
+  if (!userEnabled) queue = [];
   ensureClient();
 }
 
 /** Send an event with whitelisted aggregate properties. Safe to call at any time. */
 export function track(eventName, props = {}, options = {}) {
-  if (!isActive() || !client) return;
+  if (!isActive()) return;
+  const event = { eventName, props: sanitizeProps(props), beacon: Boolean(options.beacon) };
+  if (client) send(event);
+  // Keep events fired while the SDK downloads; they are flushed after init, dropped on opt-out.
+  else if (loading && queue.length < MAX_QUEUE) queue.push(event);
+}
+
+function send({ eventName, props, beacon }) {
   try {
-    client.capture(
-      eventName,
-      sanitizeProps(props),
-      options.beacon ? { transport: 'sendBeacon' } : undefined,
-    );
+    client.capture(eventName, props, beacon ? { transport: 'sendBeacon' } : undefined);
   } catch {
     // Ignore SDK failures.
   }
@@ -123,6 +132,7 @@ export function resetAnalyticsForTests() {
   userEnabled = true;
   client = null;
   loading = null;
+  queue = [];
 }
 
 /** Resolves when a pending SDK load has finished. Used by tests. */
