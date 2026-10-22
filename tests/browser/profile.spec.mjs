@@ -60,3 +60,26 @@ test('settings persist; exported profile is previewed before replacing another b
     await context.close();
   }
 });
+
+test('US latin letters on a non-English keyboard are optional, styled and persisted', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const board = page.locator('.keyboard');
+  const firstLatin = board.locator('.key[data-key="1-0"] .latin-label');
+  await expect(firstLatin).toHaveText('Q');
+  await expect(firstLatin).toBeHidden();
+  await page.locator('#latin-hints').check();
+  await expect(firstLatin).toBeVisible();
+  await page.locator('#latin-font').selectOption('mono');
+  await page.locator('#latin-color').fill('#cc0000');
+  await expect(firstLatin).toHaveCSS('color', 'rgb(204, 0, 0)');
+  await page.reload();
+  await expect(page.locator('#latin-hints')).toBeChecked();
+  await expect(page.locator('.key[data-key="1-0"] .latin-label')).toHaveCSS(
+    'color',
+    'rgb(204, 0, 0)',
+  );
+  await page.getByLabel('Язык обучения').selectOption('en');
+  await expect(page.locator('.latin-label')).toHaveCount(0);
+});

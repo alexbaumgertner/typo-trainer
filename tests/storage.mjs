@@ -112,3 +112,21 @@ assert.equal(parseBackup(withoutHistory).progress.en[0], 97);
 console.log(
   'PASS: complete backup round trip, legacy migration, durable lesson progress, invalid files, prototype keys.',
 );
+{
+  const withLatin = emptyProfile();
+  Object.assign(withLatin.settings, {
+    latinHints: true,
+    latinFont: 'serif',
+    latinColor: '#AA00FF',
+  });
+  const restored = parseBackup(JSON.parse(JSON.stringify(makeBackup(withLatin))));
+  assert.equal(restored.settings.latinHints, true);
+  assert.equal(restored.settings.latinFont, 'serif');
+  assert.equal(restored.settings.latinColor, '#aa00ff');
+  assert.equal(parseBackup(emptyProfile()).settings.latinHints, false);
+  for (const patch of [{ latinFont: 'comic' }, { latinColor: 'red' }, { latinHints: 'yes' }]) {
+    const bad = makeBackup(withLatin);
+    Object.assign(bad.data.settings, patch);
+    assert.throws(() => parseBackup(bad));
+  }
+}
