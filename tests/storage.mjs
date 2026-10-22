@@ -4,8 +4,13 @@ const data = emptyProfile();
 data.profile.name = 'Александр';
 data.settings.hands = true;
 data.settings.letters = false;
+data.settings.guidance = false;
+data.settings.hideSpeed = true;
+data.settings.hintMode = 'always';
 data.selected = 'en';
 data.lessons = { en: 3 };
+data.retrainingKeys = { en: ['q', 'w'], ru: ['й'] };
+data.fingerMarks = { en: { q: 2 } };
 data.customLanguages['custom-test'] = {
   name: 'Deutsch',
   layout: 'QWERTZ',
@@ -25,18 +30,51 @@ data.history = [
     speed: 110,
     duration: 60000,
     mistakes: { f: 1 },
+    fingerMarks: { f: 1 },
     length: 110,
   },
 ];
 const clean = parseBackup(data);
 assert.equal(clean.progress.en[0], 97);
+assert.deepEqual(clean.retrainingKeys.en, ['q', 'w']);
+assert.deepEqual(clean.fingerMarks.en, { q: 2 });
+assert.deepEqual(clean.history[0].fingerMarks, { f: 1 });
 assert.deepEqual(parseBackup(JSON.parse(JSON.stringify(makeBackup(clean)))), clean);
 const legacy = structuredClone(data);
 delete legacy.profile;
 delete legacy.progress;
 delete legacy.settings.hands;
+delete legacy.settings.hintMode;
+delete legacy.settings.guidance;
+delete legacy.settings.hideSpeed;
+delete legacy.settings.analytics;
+delete legacy.retrainingKeys;
+delete legacy.fingerMarks;
+delete legacy.history[0].fingerMarks;
 assert.equal(parseBackup({ ...legacy, exportedAt: '2026-10-10' }).history.length, 1);
 assert.equal(parseBackup(legacy).settings.hands, false);
+assert.equal(parseBackup(legacy).settings.hintMode, 'auto');
+assert.equal(parseBackup(legacy).settings.guidance, true);
+assert.equal(parseBackup(legacy).settings.hideSpeed, false);
+// Profiles saved before the analytics setting existed default to enabled.
+assert.equal(parseBackup(legacy).settings.analytics, true);
+const legacyFile = { history: legacy.history, settings: { colors: true }, selected: 'en' };
+assert.equal(parseBackup(legacyFile).settings.analytics, true);
+// The choice survives export and import.
+const optedOut = structuredClone(clean);
+optedOut.settings.analytics = false;
+assert.equal(makeBackup(optedOut).data.settings.analytics, false);
+assert.equal(
+  parseBackup(JSON.parse(JSON.stringify(makeBackup(optedOut)))).settings.analytics,
+  false,
+);
+assert.equal(makeBackup(clean).data.settings.analytics, true);
+assert.deepEqual(parseBackup(legacy).retrainingKeys, {});
+assert.equal(parseBackup(legacy).history[0].fingerMarks, undefined);
+const withKeyCounts = structuredClone(clean);
+withKeyCounts.history[0].presentations = { f: 2, j: 108 };
+withKeyCounts.history[0].errorPositions = { f: 1 };
+assert.deepEqual(parseBackup(withKeyCounts).history[0].presentations, { f: 2, j: 108 });
 const reject = (mutate) => {
   const copy = makeBackup(clean);
   mutate(copy);
@@ -44,6 +82,8 @@ const reject = (mutate) => {
 };
 reject((v) => (v.version = 999));
 reject((v) => (v.data.settings.hands = 'true'));
+reject((v) => (v.data.settings.hintMode = 'invalid'));
+reject((v) => (v.data.settings.analytics = 'false'));
 reject((v) => (v.data.history[0].accuracy = 101));
 reject((v) => (v.data.history[0].date = 'invalid'));
 reject((v) => (v.data.history[0].duration = -1));
@@ -51,6 +91,15 @@ reject((v) => (v.data.selected = 'unknown'));
 reject((v) => (v.data.lessons.en = 50));
 reject((v) => (v.data.customLanguages['custom-test'].rows[1] = 'wrong'));
 reject((v) => (v.data.history[0].mistakes.f = -1));
+reject((v) => (v.data.retrainingKeys.en = ['q', 'q']));
+reject((v) => (v.data.retrainingKeys.en = ['?']));
+reject((v) => (v.data.fingerMarks.en.q = -1));
+reject((v) => (v.data.history[0].fingerMarks.f = -1));
+const invalidCounts = makeBackup(withKeyCounts);
+invalidCounts.data.history[0].errorPositions.f = 3;
+assert.throws(() => parseBackup(invalidCounts));
+delete invalidCounts.data.history[0].errorPositions;
+assert.throws(() => parseBackup(invalidCounts));
 assert.throws(() => parseBackup({}));
 const malicious = JSON.parse(
   '{"history":[],"settings":{},"selected":"ru","customLanguages":{"__proto__":{}}}',

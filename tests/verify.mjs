@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import { builtinLanguages, lessonsFor, keyInfo, TypingSession } from '../src/course.js';
+import {
+  builtinLanguages,
+  lessonsFor,
+  keyInfo,
+  retrainingDrill,
+  homePosition,
+  TypingSession,
+} from '../src/course.js';
 for (const [id, language] of Object.entries(builtinLanguages)) {
   const course = lessonsFor(language),
     known = new Set([' ']);
@@ -44,6 +51,26 @@ clean.type('b', 1100);
 clean.type('c', 2100);
 assert.equal(clean.accuracy(), 100);
 assert.equal(clean.speed(), 90);
+assert.equal(homePosition(builtinLanguages.en), 'a s d f j k l ;');
+assert.equal(retrainingDrill(builtinLanguages.en, ['q', 'w']), 'aqa sws aqa sws');
+assert.equal(retrainingDrill(builtinLanguages.ru, ['й']), 'фйф фйф');
+const retraining = new TypingSession(retrainingDrill(builtinLanguages.en, ['q']));
+retraining.start(0);
+retraining.type('a', 100);
+retraining.type('q', 200);
+assert.deepEqual(retraining.markWrongFinger(300), { key: 'q', combo: 'aqa' });
+assert.equal(retraining.status, 'paused');
+assert.equal(retraining.position, 0);
+assert.equal(retraining.time(1000), 200);
+assert.deepEqual(retraining.fingerMarks, { q: 1 });
+assert.deepEqual(retraining.mistakes, {});
+assert.equal(retraining.accuracy(), 100);
+retraining.start(1000);
+assert.equal(retraining.retry, null);
+retraining.type('a', 1100);
+retraining.type('q', 1200);
+retraining.type('a', 1300);
+assert.equal(retraining.position, 3);
 console.log(
-  'PASS: 32 lessons use introduced keys; keyboard mapping, corrections, accuracy, pause timing and completion.',
+  'PASS: 112 lessons use introduced keys; keyboard mapping, corrections, accuracy, pause timing and completion.',
 );
