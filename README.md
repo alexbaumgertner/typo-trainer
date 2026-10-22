@@ -1,85 +1,92 @@
-# Ритм
+# Ritm
 
-Веб-тренажёр десятипальцевой печати на русском, английском, украинском, немецком, турецком, французском и испанском языках. Приложение работает в браузере: HTML, CSS и JavaScript modules, без собственной серверной части и учётной записи. Профиль и прогресс сохраняются в localStorage текущего браузера. Необязательная анонимная статистика использования (PostHog, EU) выключена, если в коде не задан ключ, и отключается в профиле; см. раздел «Аналитика и приватность».
+Ritm is a web trainer for ten-finger touch typing in Russian, English, Ukrainian, German, Turkish, French, and Spanish. The application runs in the browser. It uses HTML, CSS, and JavaScript modules. It has no server part of its own and no user account. The application saves the profile and progress in the localStorage of the current browser. Optional anonymous usage statistics (PostHog, EU) are off if the code has no key. The user can also turn them off in the profile. See the section "Analytics and privacy".
 
-## Возможности
+## Features
 
-- По 16 уроков для семи встроенных языков (112 всего): основной ряд, верхний, нижний, цифры, Shift и связный текст.
-- Короткая лекция перед каждым уроком и подробная инструкция с постановкой пальцев.
-- Схема рук, зоны пальцев, подсказка следующей клавиши и противоположного Shift.
-- Режим «Авто» постепенно убирает подсказки движения по мере прохождения уроков: сначала палец, затем следующую клавишу. После 25% пройденных уроков остаётся подсветка клавиши, после 50% исчезает и она. Режимы «Всегда» и «Выкл.» позволяют выбрать помощь вручную; настройка сохраняется в профиле. Буквы, цветные зоны и схема рук управляются отдельно.
-- Переключатель «Показать руки»: полупрозрачные руки прямо над клавиатурой. Нужный палец плавно движется к букве, кисть немного следует за ним, остальные пальцы остаются над исходными клавишами. После правильного нажатия показан возврат в исходную позицию перед следующим движением, в том числе при повторе одной буквы. Для пробела двигается правый большой палец, для заглавных — также противоположный мизинец к Shift. Настройка сохраняется в браузере.
-- Кнопка «Показать движение» включает руки и медленно показывает движение к текущей клавише и обратно. Во время занятия нажатие кнопки мышью ставит набор на паузу; продолжите его кнопкой «Продолжить». При системной настройке уменьшения анимации показано статичное положение рук.
-- Режим «Переучиваюсь»: выбор до 8 проблемных клавиш на экранной клавиатуре, подсказка назначенных руки и пальца, короткие сочетания с соответствующей исходной клавишей. Во время набора F2 или кнопка «Нажал другим пальцем» отмечает собственное наблюдение, останавливает время и предлагает повторить сочетание после возвращения в исходную позицию. Браузер не определяет палец автоматически; отметки сохраняются отдельно от опечаток и не меняют точность.
-- Практика на своём тексте, образце, трудных клавишах, выбранном пальце или руке и их чередовании.
-- Повторные упражнения с seed: тот же seed, выбранный урок и набор клавиш или режим дают тот же текст. Seed показан в заголовке упражнения; поле «Указанные клавиши» позволяет повторить набор трудных символов, включая пробел.
-- Для каждой клавиши сохраняются число предъявлений и число позиций с ошибкой. Пробел, строчные и заглавные символы учитываются отдельно.
-- Ошибка останавливает курсор; Backspace исправляет её, сохраняя ошибку в статистике.
-- Таймер запускается с первой попытки, исключает паузы и время отсутствия фокуса.
-- Точность — доля правильных попыток; скорость — набранные символы в минуту активного времени. WPM не используется.
-- «Выполнено» — хотя бы одна попытка урока с точностью от 95%. «Закреплено» — ещё одна попытка от 95% без подсказок в другой календарный день. Все уроки доступны для самостоятельного выбора; прежние выполненные уроки сохраняются.
-- Локальный профиль с именем; настройки, язык и выбранные уроки сохраняются автоматически.
-- История до 500 занятий показывает скорость, точность, условия подсказок и добровольные отметки неправильного пальца. Для старых записей отсутствующие показатели отображаются как «Нет данных». График сравнивает одинаковый текст урока при одинаковом наборе подсказок; старые записи без этих сведений в него не входят. Повтор урока использует тот же текст, чтобы сравнение имело смысл. Выполнение и закрепление хранятся отдельно и не теряются при сокращении истории.
-- Скорость можно скрыть во время набора; после завершения она видна на экране результата. Подсказки клавиатуры можно отключить для самостоятельной проверки.
-- Полный перенос профиля через JSON-файл: экспорт, проверка и предварительный просмотр импорта, применение в новом браузере. Чтение файла и сохранение выполняются целиком на клиенте. Поддерживаются старые файлы `ritm-progress.json`. Импорт заменяет текущие локальные данные только после проверки и нажатия «Применить файл».
-- Добавление раскладок с рядами 13/12/11/10 символов и отдельным отображением Shift. Автоматически создаются восемь стартовых уроков.
+- 16 lessons for each of the seven built-in languages (112 lessons in total). The lessons cover the home row, the top row, the bottom row, numbers, Shift, and connected text.
+- A short lecture before each lesson, and detailed instructions that show where to put each finger.
+- A hand diagram, finger zones, a hint for the next key, and a hint for the opposite Shift key.
+- The "Авто" (Auto) mode removes the movement hints step by step as you complete lessons. First it removes the finger hint. Then it removes the next-key hint. After 25% of the lessons are complete, only the key highlight stays. After 50%, this highlight also disappears. With the "Всегда" (Always) and "Выкл." (Off) modes, you choose the help manually. The profile saves this setting. The letters, the colored zones, and the hand diagram have separate controls.
+- The "Показать руки" (Show hands) switch shows transparent hands above the keyboard. The correct finger moves smoothly to the letter. The hand follows the finger a little. The other fingers stay above their home keys. After a correct key press, the hands show the return to the home position before the next move. This also happens when the same letter repeats. For the space key, the right thumb moves. For capital letters, the opposite little finger also moves to Shift. The browser saves this setting.
+- The "Показать движение" (Show movement) button turns on the hands. It shows slowly the move to the current key and back. During a session, a mouse click on the button pauses the typing. Use the "Продолжить" (Continue) button to resume. If the system setting for reduced motion is on, the application shows a static hand position.
+- The "Переучиваюсь" (Retraining) mode: you select up to 8 problem keys on the on-screen keyboard. The application shows the assigned hand and finger. It gives short key combinations with the related home key. While you type, press F2 or the "Нажал другим пальцем" (I used a different finger) button to mark your own observation. This stops the timer and asks you to repeat the combination after you return to the home position. The browser cannot detect the finger automatically. The application stores these marks separately from typing errors. They do not change the accuracy.
+- Practice with your own text, with a sample text, with difficult keys, with a selected finger or hand, or with a mix of these.
+- Repeatable exercises with a seed. The same seed, the same selected lesson, and the same key set or mode give the same text. The exercise heading shows the seed. In the "Указанные клавиши" (Specified keys) field, you can repeat a set of difficult characters, including the space.
+- For each key, the application saves the number of times it was shown and the number of positions with an error. It counts the space, lowercase characters, and uppercase characters separately.
+- An error stops the cursor. Backspace corrects the error, but the statistics keep the error.
+- The timer starts at the first attempt. It does not count pauses or the time when the page has no focus.
+- Accuracy is the share of correct attempts. Speed is the number of typed characters per minute of active time. The application does not use WPM.
+- "Выполнено" (Done) means at least one lesson attempt with an accuracy of 95% or higher. "Закреплено" (Reinforced) means one more attempt with an accuracy of 95% or higher, without hints, on a different calendar day. You can choose any lesson at any time. The application keeps the lessons that were done before.
+- A local profile with a name. The application saves the settings, the language, and the selected lessons automatically.
+- The history holds up to 500 sessions. It shows speed, accuracy, hint conditions, and the voluntary marks for a wrong finger. For old records, the missing values show as "Нет данных" (No data). The graph compares the same lesson text with the same hint set. Old records without this information are not in the graph. A lesson repeat uses the same text, so the comparison is meaningful. The application stores "Done" and "Reinforced" separately. They stay when the history is shortened.
+- You can hide the speed while you type. After the session, the result screen shows it. You can turn off the keyboard hints for a self-check.
+- Full profile transfer with a JSON file: export, validation, and an import preview. You can apply the file in a new browser. The application reads and saves the file fully on the client. It supports old `ritm-progress.json` files. The import replaces the current local data only after validation and after you click "Применить файл" (Apply file).
+- You can add layouts with rows of 13, 12, 11, or 10 characters, and a separate display for Shift. The application creates eight starter lessons automatically.
 
-Выбор языка приложения не переключает раскладку операционной системы. Тренажёр принимает фактически введённые символы. Для практики десятью пальцами нужна физическая клавиатура.
+The application language setting does not change the keyboard layout of the operating system. The trainer accepts the characters that you actually type. To practice with ten fingers, you need a physical keyboard.
 
-## Языки интерфейса и тренировок
+## Interface and training languages
 
-Выбор «Язык интерфейса» независим от языка обучения. Интерфейс доступен на русском, украинском, немецком, турецком, французском и испанском: переводятся уроки и пояснения, навигация, подсказки пальцев, практика, профиль и сообщения об ошибках. Английский остаётся языком тренировок. Смена интерфейса ставит активную тренировку на паузу, сохраняя набранный текст и статистику. Оба выбора сохраняются в профиле и переносятся через JSON; у старых профилей интерфейс остаётся русским.
+The "Язык интерфейса" (Interface language) setting is independent of the training language. The interface is available in Russian, Ukrainian, German, Turkish, French, and Spanish. The translation covers lessons and explanations, navigation, finger hints, practice, the profile, and error messages. English stays a training language. When you change the interface language, the application pauses the active session. It keeps the typed text and the statistics. The profile saves both settings, and the JSON file transfers them. An old profile keeps the Russian interface.
 
-| Язык тренировок | Раскладка                                            |
-| --------------- | ---------------------------------------------------- |
-| Русский         | ЙЦУКЕН                                               |
-| English         | QWERTY (US)                                          |
-| Українська      | ЙЦУКЕН (UA), включая ґ на дополнительной ISO-клавише |
-| Deutsch         | QWERTZ (DE)                                          |
-| Türkçe          | Q (TR), различает i/İ и ı/I                          |
-| Français        | Традиционная AZERTY (FR), цифры с Shift              |
-| Español         | QWERTY (ES, Испания)                                 |
+| Training language | Layout                                     |
+| ----------------- | ------------------------------------------ |
+| Русский           | ЙЦУКЕН                                     |
+| English           | QWERTY (US)                                |
+| Українська        | ЙЦУКЕН (UA), with ґ on the extra ISO key   |
+| Deutsch           | QWERTZ (DE)                                |
+| Türkçe            | Q (TR), with separate i/İ and ı/I          |
+| Français          | Traditional AZERTY (FR), digits with Shift |
+| Español           | QWERTY (ES, Spain)                         |
 
-Для пяти новых языков добавлены собственные упражнения и тексты. Национальные раскладки сверены с базовыми таблицами XKB `ua`, `de`, `tr`, `fr`, `es`; дополнительные клавиши ISO имеют свои зоны пальцев. Для французского и испанского поддерживаются распространённые составные буквы через мёртвые клавиши (например, `^` + `e` → `ê`, `´` + `a` → `á`); подсказка показывает последовательность. Свой текст нормализуется в Unicode NFC.
+The five new languages have their own exercises and texts. The national layouts agree with the base XKB tables `ua`, `de`, `tr`, `fr`, and `es`. The extra ISO keys have their own finger zones. For French and Spanish, the application supports common composed letters with dead keys (for example, `^` + `e` → `ê`, `´` + `a` → `á`). The hint shows the key sequence. The application normalizes your own text to Unicode NFC.
 
-Ограничения: приложение не переключает системную раскладку. AltGr, Caps Lock, все региональные варианты и новая французская AZERTY не моделируются. Пользовательский конструктор сохраняет прежний формат рядов 13/12/11/10. Имена и собственные названия занятий не переводятся; названия уроков в истории отображаются на текущем языке интерфейса. Переводы не проходили отдельную редактуру носителями языков. Реальный ввод мёртвых клавиш зависит от ОС и браузера; автоматизация проверяет обработчики событий, но не заменяет проверку физической клавиатуры.
+Limitations:
 
-Каталоги перевода находятся в `src/locales/`, общая логика — в `src/i18n.js`. Русские исходные сообщения служат ключами; пользовательские строки не передаются в переводчик. `tests/languages.mjs` проверяет полноту каталогов, все курсы, национальные символы, зоны ISO и перенос профиля с независимыми языками. Браузерные сценарии находятся в `tests/browser/languages.spec.mjs`.
+- The application does not change the system layout.
+- It does not model AltGr, Caps Lock, all regional variants, or the new French AZERTY.
+- The custom layout builder keeps the previous row format of 13, 12, 11, or 10 characters.
+- The application does not translate names and the proper names of sessions. The history shows lesson names in the current interface language.
+- Native speakers did not edit the translations.
+- The real input of dead keys depends on the OS and the browser. The automated tests check the event handlers, but they do not replace a check with a physical keyboard.
 
-## Разработка
+The translation catalogs are in `src/locales/`. The common logic is in `src/i18n.js`. The Russian source messages are the keys. The application does not send user strings to a translator. `tests/languages.mjs` checks that the catalogs are complete. It also checks all courses, national characters, ISO zones, and profile transfer with independent languages. The browser scenarios are in `tests/browser/languages.spec.mjs`.
 
-Нужен Node.js 20 или новее. После распаковки архива откройте папку проекта:
+## Development
+
+You need Node.js 20 or newer. Unpack the archive and open the project folder:
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Откройте http://127.0.0.1:4173. Сервер разработки читает файлы прямо из `src/`; после изменения обновите страницу. Это локальный статический сервер для разработки, данные профиля остаются в localStorage браузера.
+Open http://127.0.0.1:4173. The development server reads the files directly from `src/`. After you change a file, refresh the page. This is a local static server for development. The profile data stays in the localStorage of the browser.
 
-## Структура проекта
+## Project structure
 
 ```text
 src/
-  index.html       — основная страница
-  app.js           — интерфейс и обработчики событий
-  course.js        — раскладки, уроки и модель тренировки
-  exercises.js     — генератор повторных упражнений и статистика клавиш
-  storage.js       — проверка профилей, миграция и формат JSON
-  analytics.js     — анонимная статистика (PostHog EU), no-op без ключа
-  styles.css       — стили и адаптивная вёрстка
-  ui/html.js       — шаблоны HTML с форматированием разметки
+  index.html       — main page
+  app.js           — interface and event handlers
+  course.js        — layouts, lessons, and the training model
+  exercises.js     — generator of repeatable exercises and key statistics
+  storage.js       — profile validation, migration, and JSON format
+  analytics.js     — anonymous statistics (PostHog EU), no-op without a key
+  styles.css       — styles and responsive layout
+  ui/html.js       — HTML templates with markup formatting
 scripts/
-  build.mjs        — создаёт dist из src
-  serve.mjs        — локальный статический сервер
-  archive.mjs      — собирает архив исходников
-tests/            — быстрые проверки модели и профилей, браузерные smoke/e2e тесты
-dist/             — результат сборки, не редактировать
+  build.mjs        — creates dist from src
+  serve.mjs        — local static server
+  archive.mjs      — creates the source archive
+tests/            — fast model and profile tests, browser smoke and e2e tests
+dist/             — build result, do not edit
 ```
 
-Исходники находятся только в `src/`. В `storage.js` отдельно проверяются настройки, пользовательские раскладки, история, выбранные уроки и прогресс. Новые встроенные языки добавляются в `builtinLanguages` в `src/course.js`, индивидуальные — через форму в приложении.
+The source files are only in `src/`. The file `storage.js` validates these items separately: settings, custom layouts, history, selected lessons, and progress. To add a new built-in language, add it to `builtinLanguages` in `src/course.js`. To add a custom language, use the form in the application.
 
-## Форматирование и проверки
+## Formatting and checks
 
 ```sh
 npm run format
@@ -87,126 +94,169 @@ npm run format:check
 npm test
 ```
 
-Prettier форматирует JavaScript, CSS, HTML и разметку внутри `html`-шаблонов. Настройки закреплены в `.prettierrc.json` и `.editorconfig`. HTML-шаблоны не экранируют пользовательский ввод автоматически: перед вставкой таких значений используется функция `esc`.
+Prettier formats JavaScript, CSS, HTML, and the markup inside `html` templates. The settings are in `.prettierrc.json` and `.editorconfig`. The HTML templates do not escape user input automatically. Use the `esc` function before you insert such values.
 
-`npm test` (или `npm run test:unit`) запускает быстрые проверки исходников без браузера: все 112 уроков, зоны пальцев, точность и скорость, состояния тренировки, паузы, исправления, валидацию и миграцию профилей, упражнения с seed, закрепление уроков, подсказки и движение рук. Интеграционный тест передаёт результаты `TypingSession` в JSON-профиль и проверяет восстановление истории и лучшего результата урока. Эти варианты не нужно повторять в e2e.
+`npm test` (or `npm run test:unit`) runs fast checks on the source files without a browser. The checks cover these items:
 
-Для браузерных тестов один раз установите Chromium:
+- all 112 lessons
+- finger zones
+- accuracy and speed
+- training states
+- pauses and corrections
+- profile validation and migration
+- exercises with a seed
+- lesson reinforcement
+- hints and hand movement
+
+An integration test passes the results of `TypingSession` to a JSON profile. It checks that the history and the best lesson result are restored. Do not repeat these cases in the e2e tests.
+
+For the browser tests, install Chromium one time:
 
 ```sh
 npx playwright install chromium
 # Linux CI: npx playwright install --with-deps chromium
 npm run test:smoke
 npm run test:e2e
-# Все быстрые и браузерные проверки:
+# All fast and browser checks:
 npm run test:all
 ```
 
-Smoke проверяет загрузку собранного приложения, ресурсы, отсутствие ошибок JavaScript и основные разделы для обоих языков. E2e включает smoke и проверяет русский/английский ввод, валидацию своего текста, ошибку и Backspace, паузу и потерю фокуса, завершение занятия, переход к следующему уроку, сохранение после перезагрузки, настройки, скачивание и импорт профиля в отдельный браузерный контекст. Некорректный JSON отклоняется, а корректный файл применяется только после подтверждения.
+The smoke test checks that the built application loads. It also checks the resources, that there are no JavaScript errors, and the main sections for both languages. The e2e test includes the smoke test. It also checks these items:
 
-Playwright автоматически собирает `dist/`, запускает и останавливает статический сервер. Порт по умолчанию — 4173, можно задать `PORT`; порт должен быть свободен. Каждый тест получает изолированный localStorage. Повторные попытки отключены. При падении сохраняются screenshot и trace в `test-results/`, HTML-отчёт — в `playwright-report/` (`npx playwright show-report`).
+- Russian and English input
+- validation of custom text
+- an error and Backspace
+- pause and loss of focus
+- session completion
+- the move to the next lesson
+- saving after a reload
+- settings
+- profile download, and profile import in a separate browser context
 
-Workflow `.github/workflows/tests.yml` запускает форматирование, быстрые и браузерные проверки для PR и push в `main`; при падении сохраняет отчёт и trace на 7 дней. Публикация Pages остаётся отдельным workflow.
+The application rejects incorrect JSON. It applies a correct file only after confirmation.
 
-Ограничения: автоматизация использует только Chromium на настольном viewport. Нет визуальных снимков-эталонов, проверки реальной системной раскладки/IME, Safari/Firefox, мобильного ввода и полной браузерной матрицы пользовательских раскладок. Браузерные тесты проверяют подключение обработчиков и пользовательские действия; точные расчёты времени проверяются быстрыми тестами с заданными временными метками.
+Playwright builds `dist/` automatically. It also starts and stops the static server. The default port is 4173. You can set `PORT`, but the port must be free. Each test gets an isolated localStorage. Retries are off. If a test fails, Playwright saves a screenshot and a trace in `test-results/`. It saves the HTML report in `playwright-report/` (`npx playwright show-report`).
 
-## Сборка и публикация
+The workflow `.github/workflows/tests.yml` runs the formatting check, the fast checks, and the browser checks for pull requests and for pushes to `main`. If a check fails, the workflow saves the report and the trace for 7 days. The Pages publication stays a separate workflow.
+
+Limitations:
+
+- The automated tests use only Chromium with a desktop viewport.
+- There are no reference visual snapshots.
+- There is no check of a real system layout or IME, of Safari or Firefox, of mobile input, or of a full browser matrix for custom layouts.
+- The browser tests check that the handlers are connected and that user actions work. The fast tests check exact time calculations with fixed timestamps.
+
+## Build and publication
 
 ```sh
 npm run build
 npm run preview
 ```
 
-`npm run build` очищает `dist/` и копирует туда исходники с сохранением структуры. Минификация не используется. Для публикации достаточно загрузить содержимое `dist/` на статический хостинг. Папка `dist/` исключена из Git, её можно в любой момент восстановить из `src/`.
+`npm run build` clears `dist/` and copies the source files into it. The folder structure stays the same. The build does not minify the code. To publish, upload the content of `dist/` to a static host. Git ignores the `dist/` folder. You can restore it from `src/` at any time.
 
 ```sh
 npm run archive
 ```
 
-Эта команда также создаёт `dist/ritm-source.zip` с исходниками, скриптами, тестами, lock-файлом и настройками форматирования. В архив не входят `.git`, идентификатор Site, `node_modules`, локальные данные и готовая сборка.
+This command also creates `dist/ritm-source.zip`. The archive contains the source files, scripts, tests, the lock file, and the formatting settings. The archive does not contain `.git`, the Site identifier, `node_modules`, local data, or the finished build.
 
-## GitHub Pages через Actions
+## GitHub Pages with Actions
 
-Сайт: https://alexbaumgertner.github.io/typo-trainer/
+Site: https://alexbaumgertner.github.io/typo-trainer/
 
-Workflow `.github/workflows/pages.yml` запускается после пуша в `main` и вручную через **Actions → Deploy to GitHub Pages → Run workflow**. Он устанавливает зависимости через `npm ci`, проверяет форматирование, запускает тесты, собирает сайт с архивом исходников и публикует `dist/`.
+The workflow `.github/workflows/pages.yml` runs after a push to `main`. You can also start it manually: **Actions → Deploy to GitHub Pages → Run workflow**. The workflow does these steps:
 
-При первом запуске выберите **Settings → Pages → Build and deployment → Source → GitHub Actions**. Это однократная настройка репозитория; персональный токен и дополнительные secrets для workflow не нужны. Если Pages ещё не включены, шаг Configure Pages сообщит об этом. После настройки повторите запуск из Actions.
+1. It installs the dependencies with `npm ci`.
+2. It checks the formatting.
+3. It runs the tests.
+4. It builds the site with the source archive.
+5. It publishes `dist/`.
 
-Права публикации выдаются только заданию `deploy`. Задания публикации выполняются последовательно. Если проверки или сборка завершились ошибкой, новая версия не публикуется.
+For the first run, select **Settings → Pages → Build and deployment → Source → GitHub Actions**. You do this setting only one time for the repository. The workflow does not need a personal token or more secrets. If Pages is not enabled, the Configure Pages step shows a message. After you enable Pages, run the workflow again from Actions.
 
-Все локальные ссылки и импорты относительные, поэтому приложение работает по пути `/typo-trainer/` без дополнительного base URL. Профиль на GitHub Pages хранится отдельно от профиля на прежнем домене: для переноса используйте JSON-файл из раздела «Мой профиль».
+Only the `deploy` job has permission to publish. The publication jobs run one after the other. If a check or the build fails, the workflow does not publish the new version.
 
-## Аналитика и приватность
+All local links and imports are relative. For this reason, the application works at the path `/typo-trainer/` and does not need a base URL. The profile on GitHub Pages is separate from the profile on the previous domain. To move a profile, use the JSON file from the "Мой профиль" (My profile) section.
 
-Чтобы понять, как люди проходят уроки и где бросают, приложение умеет отправлять **анонимные** события в [PostHog](https://posthog.com) (регион EU, `https://eu.i.posthog.com`). Данные профиля по-прежнему хранятся только в вашем браузере.
+## Analytics and privacy
 
-**Если ключ пуст, аналитика выключена полностью:** SDK не загружается, запросов нет, в «Моём профиле» показано только пояснение, что статистика не собирается.
+The application can send **anonymous** events to [PostHog](https://posthog.com) (EU region, `https://eu.i.posthog.com`). This shows how people go through the lessons and where they stop. The profile data stays only in your browser.
 
-### Как включить
+**If the key is empty, analytics is fully off.** The SDK does not load, the application sends no requests, and "Мой профиль" (My profile) only shows a note that it collects no statistics.
 
-В репозитории уже задан публичный Project API key проекта владельца. Чтобы использовать свой проект или отключить аналитику, замените или очистите ключ:
+### How to turn on
 
-1. Создайте проект в [PostHog Cloud EU](https://eu.posthog.com) (регистрация на `eu.posthog.com`, не на `us.`).
-2. Откройте **Project settings → Project → Project API key** и скопируйте ключ вида `phc_…`.
-3. Вставьте его в `ANALYTICS_CONFIG.POSTHOG_KEY` в `src/analytics.js` и закоммитьте.
+The repository already contains the public Project API key of the owner's project. To use your own project, or to turn off analytics, replace or clear the key:
 
-Ключ публичный (Project API key только записывает события и не читает данные), поэтому хранится прямо в коде, а секреты и GitHub Secrets не нужны. Не используйте Personal API key (`phx_…`) — он приватный. Автоматизированные браузеры (`navigator.webdriver`, например Playwright) аналитику не отправляют. Для сайта на GitHub Pages в настройках проекта PostHog можно ограничить Authorized URLs. Сборка не меняется: SDK подгружается в браузере динамически с `eu-assets.i.posthog.com`, npm-зависимостей нет.
+1. Create a project in [PostHog Cloud EU](https://eu.posthog.com). Sign up on `eu.posthog.com`, not on `us.`.
+2. Open **Project settings → Project → Project API key** and copy the key. It looks like `phc_…`.
+3. Put it in `ANALYTICS_CONFIG.POSTHOG_KEY` in `src/analytics.js` and commit it.
 
-### Как отключить
+The key is public. A Project API key can only write events. It cannot read data. For this reason, the key is stored in the code, and you do not need secrets or GitHub Secrets. Do not use a Personal API key (`phx_…`). It is private. Automated browsers (`navigator.webdriver`, for example Playwright) do not send analytics. For a GitHub Pages site, you can limit the Authorized URLs in the PostHog project settings. The build does not change. The browser loads the SDK dynamically from `eu-assets.i.posthog.com`. There are no npm dependencies.
 
-- Пользователь: «Мой профиль» → «Анонимная статистика использования». Переключатель по умолчанию включён (если задан ключ), действует сразу, сохраняется в профиле и попадает в экспорт JSON. Если он выключен при загрузке, SDK даже не загружается.
-- Браузер: включённый Do Not Track также учитывается (`respect_dnt`).
-- Владелец: оставьте `POSTHOG_KEY` пустым.
+### How to turn off
 
-### Настройки SDK
+- User: "Мой профиль" (My profile) → "Анонимная статистика использования" (Anonymous usage statistics). By default the switch is on (if a key is set). It works at once, the profile saves it, and the JSON export contains it. If it is off at load time, the SDK does not even load.
+- Browser: the application also respects an active Do Not Track setting (`respect_dnt`).
+- Owner: keep `POSTHOG_KEY` empty.
 
-`persistence: 'memory'` (без cookie и localStorage), `autocapture: false`, `disable_session_recording: true`, `capture_pageview: false`, `capture_pageleave: false`, `respect_dnt: true`, `ip: false`, `person_profiles: 'identified_only'`, без опросов и feature flags. `identify` не вызывается, идентификатор пользователя не хранится: при каждой загрузке страницы создаётся новый случайный идентификатор в памяти.
+### SDK settings
 
-### События
+`persistence: 'memory'` (no cookie and no localStorage), `autocapture: false`, `disable_session_recording: true`, `capture_pageview: false`, `capture_pageleave: false`, `respect_dnt: true`, `ip: false`, `person_profiles: 'identified_only'`, no surveys and no feature flags. The application does not call `identify`, and it does not store a user identifier. Each page load creates a new random identifier in memory.
 
-| Событие                  | Когда                                         | Свойства                                                                                                          |
-| ------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `lesson_started`         | старт урока                                   | `lessonId`, `layout` (`ru`/`en`/`custom`), `hintMode`                                                             |
-| `lesson_completed`       | урок набран до конца                          | `lessonId`, `accuracy`, `charsPerMinute`, `durationSec`, `hintMode`, `isRepeat`                                   |
-| `lesson_abandoned`       | уход с упражнения до завершения (после ввода) | `lessonId` или `practiceType`, `layout`, `hintMode`, `progress` (0–1)                                             |
-| `practice_mode_selected` | выбор практики                                | `practiceType` (`sample`, `weak`, `custom`, `finger`, `fingers`, `hand`, `hands`, `keys`, `retraining`), `layout` |
-| `hands_overlay_toggled`  | переключатель «Показать руки»                 | `setting`, `enabled`, `hintMode`                                                                                  |
-| `hint_mode_changed`      | цветные зоны / буквы на клавишах              | `setting`, `enabled`, `hintMode`                                                                                  |
-| `profile_exported`       | скачан файл профиля                           | —                                                                                                                 |
-| `profile_imported`       | применён файл профиля                         | —                                                                                                                 |
-| `settings_changed`       | пользователь включил статистику               | `setting` (`analytics`), `enabled`                                                                                |
+### Events
 
-`hintMode` — режим подсказок движения (`auto`, `always`, `off`). Для `hint_mode_changed` свойство `setting` — `hintMode`, `colors`, `letters` или `guidance`. Выключение статистики событие не отправляет.
+| Event                    | When                                              | Properties                                                                                                        |
+| ------------------------ | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `lesson_started`         | a lesson starts                                   | `lessonId`, `layout` (`ru`/`en`/`custom`), `hintMode`                                                             |
+| `lesson_completed`       | the user types the lesson to the end              | `lessonId`, `accuracy`, `charsPerMinute`, `durationSec`, `hintMode`, `isRepeat`                                   |
+| `lesson_abandoned`       | the user leaves an exercise (after typing starts) | `lessonId` or `practiceType`, `layout`, `hintMode`, `progress` (0–1)                                              |
+| `practice_mode_selected` | the user selects a practice                       | `practiceType` (`sample`, `weak`, `custom`, `finger`, `fingers`, `hand`, `hands`, `keys`, `retraining`), `layout` |
+| `hands_overlay_toggled`  | the "Show hands" switch                           | `setting`, `enabled`, `hintMode`                                                                                  |
+| `hint_mode_changed`      | colored zones / letters on the keys               | `setting`, `enabled`, `hintMode`                                                                                  |
+| `profile_exported`       | the user downloads a profile file                 | —                                                                                                                 |
+| `profile_imported`       | the user applies a profile file                   | —                                                                                                                 |
+| `settings_changed`       | the user turns on statistics                      | `setting` (`analytics`), `enabled`                                                                                |
 
-### Что не отправляется
+`hintMode` is the mode of the movement hints (`auto`, `always`, `off`). For `hint_mode_changed`, the `setting` property is `hintMode`, `colors`, `letters`, or `guidance`. When the user turns off statistics, the application sends no event.
 
-Набранный текст, нажатые символы, свой текст для практики, имя профиля, содержимое импортируемого файла, названия и символы пользовательских раскладок. Из `props` проходит только белый список ключей (`ALLOWED_PROPS` в `src/analytics.js`) со значениями-числами, флагами и короткими строками; всё остальное отбрасывается. Тест `tests/analytics.mjs` проверяет это.
+### What the application does not send
 
-### Проверка отправки событий
+The application does not send these items: typed text, pressed characters, your own practice text, the profile name, the content of an imported file, and the names and characters of custom layouts. Only a whitelist of keys (`ALLOWED_PROPS` in `src/analytics.js`) passes from `props`. The values must be numbers, flags, or short strings. The application discards everything else. The test `tests/analytics.mjs` checks this.
 
-В обычном браузере откройте опубликованный сайт, включите статистику в «Моём профиле» и откройте DevTools → Network. При выключенном Do Not Track и без блокировщика:
+### Check that events are sent
 
-1. Обновите страницу: `eu-assets.i.posthog.com/static/module.js` должен загрузиться успешно. Сам просмотр страницы не отправляет `$pageview`.
-2. Нажмите «Начать практику» в уроке: ожидается POST на `https://eu.i.posthog.com/e/` с событием `lesson_started` и ответом `200 {"status":"Ok"}`.
-3. Выключите статистику в профиле: следующие действия не должны отправлять события. После обновления страницы SDK также не должен загружаться.
-4. Для подтверждения появления данных откройте события нужного проекта в PostHog EU и найдите `lesson_started` по времени проверки. HTTP 200 подтверждает приём запроса, но сам по себе не проверяет отчёты проекта.
+In a normal browser, open the published site, turn on statistics in "Мой профиль" (My profile), and open DevTools → Network. Do Not Track must be off, and no blocker must be active. Then do these steps:
 
-Проверка опубликованного сайта 21 октября 2026: загрузка SDK и приём события старта урока подтверждены (HTTP 200, `{"status":"Ok"}`). Доступ к списку событий в кабинете не проверен: требуется авторизация владельца. Проверка создала одно событие старта урока в рабочем проекте.
+1. Refresh the page. `eu-assets.i.posthog.com/static/module.js` must load successfully. The page view alone does not send `$pageview`.
+2. In a lesson, click "Начать практику" (Start practice). Expected result: a POST to `https://eu.i.posthog.com/e/` with the event `lesson_started` and the response `200 {"status":"Ok"}`.
+3. Turn off statistics in the profile. The next actions must not send events. After you refresh the page, the SDK must not load.
+4. To confirm that the data arrives, open the events of the correct project in PostHog EU. Find `lesson_started` by the time of your check. HTTP 200 confirms that the request was accepted. It does not check the project reports.
 
-Обычный Playwright намеренно не отправляет аналитику: приложение проверяет `navigator.webdriver`, а SDK дополнительно фильтрует автоматизированные user-agent. Не отключайте эти проверки в коде сайта. Браузерные тесты `tests/browser/analytics.spec.mjs` проверяют блокировку автоматизации, отправку через подставной SDK, немедленное отключение, сохранение выбора после перезагрузки и повторное включение. Запросы к PostHog перехватываются, тестовые события в рабочий проект не уходят.
+Check of the published site on October 21, 2026: the SDK loaded, and the lesson start event was accepted (HTTP 200, `{"status":"Ok"}`). The check did not cover access to the event list in the dashboard, because it needs the owner's login. The check created one lesson start event in the production project.
 
-### PostHog MCP для агента разработки
+Normal Playwright intentionally does not send analytics. The application checks `navigator.webdriver`, and the SDK also filters automated user agents. Do not turn off these checks in the site code. The browser tests in `tests/browser/analytics.spec.mjs` check these items:
 
-MCP даёт агенту доступ к PostHog после авторизации владельца и настраивается отдельно от браузерного SDK. Установка MCP не включает и не исправляет отправку событий сайта.
+- the block for automation
+- sending through a mock SDK
+- immediate opt-out
+- keeping the choice after a reload
+- turning on again
 
-Запустите в окружении, где доступны для записи пользовательские настройки агента:
+The tests intercept requests to PostHog. No test events go to the production project.
+
+### PostHog MCP for the development agent
+
+MCP gives an agent access to PostHog after the owner authorizes it. You configure it separately from the browser SDK. Installing MCP does not turn on or repair the event sending of the site.
+
+Run this in an environment where the user settings of the agent are writable:
 
 ```sh
 npx -y @posthog/wizard@latest mcp add
 ```
 
-Для установки только MCP в Codex доступен официальный вариант:
+To install only MCP in Codex, an official option is available:
 
 ```sh
 codex mcp add posthog --url https://mcp.posthog.com/mcp
@@ -214,24 +264,34 @@ codex mcp login posthog
 codex mcp list
 ```
 
-Завершите OAuth-вход в аккаунт с нужным проектом. Публичный `phc_…` ключ сайта не заменяет эту авторизацию. Не добавляйте персональные API-ключи или OAuth-токены в Git. После подключения проверьте доступ агента к нужному проекту и чтение последних событий.
+Complete the OAuth login to the account that has the correct project. The public `phc_…` site key does not replace this authorization. Do not add personal API keys or OAuth tokens to Git. After the connection, check that the agent can access the correct project and read the latest events.
 
-В ограниченном окружении проверки wizard 2.86.0 был запущен, но установка в Codex завершилась `EROFS` при записи `~/.codex/config.toml.wizard-tmp`. MCP в этом сеансе не установлен и не авторизован; команду нужно повторить в окружении с доступной для записи конфигурацией.
+In the restricted environment of the check, wizard 2.86.0 started, but the installation in Codex failed with `EROFS` when it wrote `~/.codex/config.toml.wizard-tmp`. In that session, MCP was not installed and not authorized. Repeat the command in an environment with a writable configuration.
 
-Источники: [PostHog MCP для Codex](https://posthog.com/docs/model-context-protocol/codex), [настройка MCP в Codex](https://developers.openai.com/codex/mcp).
+Sources: [PostHog MCP for Codex](https://posthog.com/docs/model-context-protocol/codex), [MCP setup in Codex](https://developers.openai.com/codex/mcp).
 
-### Ограничения
+### Limitations
 
-- Блокировщики рекламы и приватные режимы могут блокировать PostHog; такие посетители в статистику не попадут, на работу тренажёра это не влияет.
-- Для аудитории из ЕС владелец сайта сам отвечает за правовую основу и уведомление. Баннер согласия не встроен: аналитика анонимна, без cookie и идентификаторов, но юридическую оценку нужно провести отдельно.
-- Шрифты по-прежнему загружаются с Google Fonts независимо от аналитики.
+- Ad blockers and private modes can block PostHog. Such visitors do not appear in the statistics. This does not affect the trainer.
+- For an audience in the EU, the site owner is responsible for the legal basis and the notice. The application has no consent banner. The analytics is anonymous and uses no cookies and no identifiers, but you must make a separate legal assessment.
+- The application still loads fonts from Google Fonts. This is independent of analytics.
 
-## Методика
+## Method
 
-Используются традиционные принципы обучения: закреплённые зоны пальцев, исходная позиция, последовательное введение клавиш, сочетания и слова, повторение трудных клавиш, обратная связь и короткие регулярные занятия. Лекции и упражнения написаны специально для приложения. Порог 95% и повтор в другой день — настройки курса, а не научно установленные универсальные стандарты. Методика не обещает определённую скорость или срок обучения. День определяется по местной дате браузера в момент завершения попытки. Старые достижения сохраняют состояние «Выполнено», но без данных об условиях попытки не становятся «Закреплено» автоматически: нужны две новые проверки в разные дни.
+The course uses traditional teaching principles:
 
-В упражнениях генератор распределяет предъявления целевых символов примерно поровну и при равенстве предпочитает менее повторявшиеся переходы. Для безымянных и мизинцев сначала используется одна знакомая клавиша, затем добавляются новые движения. Пробел добавляется между группами символов; если он сам выбран целью, он входит в баланс. Shift-символы доступны лишь после урока, где они появились, и подсказка показывает противоположный Shift.
+- fixed finger zones
+- a home position
+- a step-by-step introduction of keys
+- letter combinations and words
+- repetition of difficult keys
+- feedback
+- short, regular sessions
 
-«Трудной» считается клавиша с не менее чем 12 предъявлениями за последние 10 занятий с полной статистикой и консервативной нижней границей доли ошибок выше 5% (граница Вилсона с коэффициентом 1,96). Это эвристические пороги, а не доказанная оценка навыка. При меньшей выборке приложение сообщает о недостатке данных. Старые записи истории без числа предъявлений остаются в истории, но не участвуют в оценке трудных клавиш. Для символа с Shift учитывается ошибка на этом символе; браузер не позволяет по одному неверному символу установить, ошибся ли ученик именно с физическим Shift.
+The lectures and exercises were written specially for this application. The 95% threshold and the repeat on a different day are course settings. They are not universal scientific standards. The method does not promise a specific speed or a specific learning time. The application finds the day from the local date of the browser when the attempt ends. Old achievements keep the "Done" state. But without data about the attempt conditions, they do not become "Reinforced" automatically. They need two new checks on different days.
 
-Источники рекомендаций по технике: [Ratatype](https://www.ratatype.com/learn/) и [TypingClub](https://www.typingclub.com/).
+In the exercises, the generator shows the target characters about equally often. If the counts are equal, it prefers the transitions that occurred less often. For the ring fingers and little fingers, it first uses one familiar key. Then it adds new movements. The generator adds a space between groups of characters. If the space is itself a target, it is part of the balance. Shift characters are available only after the lesson where they first appear. The hint shows the opposite Shift key.
+
+A key is "difficult" if it has at least 12 appearances in the last 10 sessions with full statistics, and a conservative lower bound of its error share is above 5% (Wilson bound with a coefficient of 1.96). These are heuristic thresholds. They are not a proven measure of skill. If the sample is smaller, the application reports that there is not enough data. Old history records without the number of appearances stay in the history, but they do not count in the difficult-key estimate. For a Shift character, the application counts the error on this character. From one wrong character, the browser cannot tell if the learner made an error with the physical Shift key.
+
+Sources of the technique recommendations: [Ratatype](https://www.ratatype.com/learn/) and [TypingClub](https://www.typingclub.com/).
