@@ -1567,6 +1567,12 @@ dialog::backdrop {
 }
 .keyboard-hands .overlay-hand {
   pointer-events: none;
+  transition: transform 0.22s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .keyboard-hands .overlay-hand {
+    transition: none;
+  }
 }
 .profile-button {
   margin-left: auto;

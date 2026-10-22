@@ -804,25 +804,29 @@ function updateHandOverlay(info, expected) {
     : null;
   const shiftFinger = info?.shift ? (info.finger < 4 ? 7 : 0) : null;
   const shiftTarget = info?.shift ? point(info.finger < 4 ? '#shift-right' : '#shift-left') : null;
-  const finger = (root, tip, f, active) =>
+  const finger = (f, active) =>
     html`<g
       class="overlay-finger ${fingerClasses[f]} ${active ? 'active' : ''}"
       data-hand-finger="${f}"
       ><path
-        d="M ${root.x - radius} ${baseY} C ${root.x - radius} ${baseY - unit * 0.6}, ${tip.x -
-        radius} ${tip.y + unit * 0.45}, ${tip.x - radius} ${tip.y} Q ${tip.x - radius} ${tip.y -
-        radius}, ${tip.x} ${tip.y - radius} Q ${tip.x + radius} ${tip.y - radius}, ${tip.x +
-        radius} ${tip.y} C ${tip.x + radius} ${tip.y + unit * 0.45}, ${root.x + radius} ${baseY -
-        unit * 0.6}, ${root.x + radius} ${baseY} Z"
+        d="M ${home[f].x - radius} ${baseY} L ${home[f].x - radius} ${home[f].y} Q ${home[f].x -
+        radius} ${home[f].y - radius}, ${home[f].x} ${home[f].y - radius} Q ${home[f].x +
+        radius} ${home[f].y - radius}, ${home[f].x + radius} ${home[f].y} L ${home[f].x +
+        radius} ${baseY} Z"
       />${active
         ? html`<circle
-            cx="${tip.x}"
-            cy="${tip.y - radius * 0.6}"
+            cx="${home[f].x}"
+            cy="${home[f].y - radius * 0.6}"
             r="${radius * 0.23}"
             class="finger-tip"
           />`
         : ''}</g
     >`;
+  // The whole hand moves as one rigid piece: the offset puts the working finger's
+  // home position over its target key, while the other fingers travel with it.
+  const handOffset = (f, to) =>
+    f !== null && to ? { x: to.x - home[f].x, y: to.y - home[f].y } : null;
+  const previous = Array.from(svg.querySelectorAll('.overlay-hand'), (g) => g.style.transform);
   let markup = '';
   for (const side of [0, 1]) {
     const indices = side === 0 ? [0, 1, 2, 3] : [4, 5, 6, 7],
@@ -830,26 +834,22 @@ function updateHandOverlay(info, expected) {
       right = home[indices[3]].x + radius,
       sign = side === 0 ? 1 : -1,
       inner = side === 0 ? right : left,
-      wristY = baseY + unit * 1.35;
-    markup += html`<g class="overlay-hand" data-hand="${side === 0 ? 'left' : 'right'}"
-      ><path
-        class="overlay-palm"
-        d="M ${left} ${baseY - 10} Q ${(left + right) / 2} ${baseY - 18} ${right} ${baseY -
-        10} L ${right} ${baseY + unit * 0.45} Q ${right} ${baseY + unit * 0.85} ${right -
-        unit * 0.45} ${baseY + unit} L ${right - unit * 0.45} ${wristY} L ${left +
-        unit * 0.45} ${wristY} L ${left + unit * 0.45} ${baseY + unit} Q ${left} ${baseY +
-        unit * 0.85} ${left} ${baseY + unit * 0.45} Z"
-    /></g>`;
-    for (const f of indices) {
-      const active = f === info?.finger || f === shiftFinger;
-      const tip =
-        f === info?.finger && target
-          ? target
-          : f === shiftFinger && shiftTarget
-            ? shiftTarget
-            : home[f];
-      markup += finger(home[f], tip, f, active);
-    }
+      wristY = baseY + unit * 1.35,
+      offset =
+        handOffset(indices.includes(info?.finger) ? info.finger : null, target) ||
+        handOffset(indices.includes(shiftFinger) ? shiftFinger : null, shiftTarget),
+      transform = offset ? `translate(${offset.x}px, ${offset.y}px)` : 'translate(0px, 0px)';
+    const palm = html`<path
+      class="overlay-palm"
+      d="M ${left} ${baseY - 10} Q ${(left + right) / 2} ${baseY - 18} ${right} ${baseY -
+      10} L ${right} ${baseY + unit * 0.45} Q ${right} ${baseY + unit * 0.85} ${right -
+      unit * 0.45} ${baseY + unit} L ${right - unit * 0.45} ${wristY} L ${left +
+      unit * 0.45} ${wristY} L ${left + unit * 0.45} ${baseY + unit} Q ${left} ${baseY +
+      unit * 0.85} ${left} ${baseY + unit * 0.45} Z"
+    />`;
+    const fingerMarkup = indices
+      .map((f) => finger(f, f === info?.finger || f === shiftFinger))
+      .join('');
     const space = point('#space-key'),
       thumbX =
         side === 0
@@ -857,9 +857,39 @@ function updateHandOverlay(info, expected) {
           : Math.max(inner - unit * 0.85, space.x + unit * 0.55),
       thumbY = space.y,
       active = info?.finger === 8 && side === 1;
-    markup += html`<g class="overlay-finger overlay-thumb thumb ${active ? 'active' : ''}" data-hand-finger="${side === 0 ? 9 : 8}"><path d="M ${inner - sign * radius} ${baseY + unit * 0.7} Q ${inner + sign * unit * 0.35} ${baseY + unit * 0.5} ${thumbX - sign * radius} ${thumbY + radius} Q ${thumbX - sign * radius} ${thumbY - radius} ${thumbX} ${thumbY - radius} Q ${thumbX + sign * radius} ${thumbY - radius} ${thumbX + sign * radius} ${thumbY + radius * 0.3} L ${inner + sign * radius * 0.5} ${baseY + unit * 0.9} Z"/>${active ? html`<circle cx="${thumbX}" cy="${thumbY - radius * 0.6}" r="${radius * 0.23}" class="finger-tip" />` : ''}</g></g>`;
+    const thumb = html`<g
+      class="overlay-finger overlay-thumb thumb ${active ? 'active' : ''}"
+      data-hand-finger="${side === 0 ? 9 : 8}"
+      ><path
+        d="M ${inner - sign * radius} ${baseY + unit * 0.7} Q ${inner +
+        sign * unit * 0.35} ${baseY + unit * 0.5} ${thumbX - sign * radius} ${thumbY +
+        radius} Q ${thumbX - sign * radius} ${thumbY - radius} ${thumbX} ${thumbY -
+        radius} Q ${thumbX + sign * radius} ${thumbY - radius} ${thumbX + sign * radius} ${thumbY +
+        radius * 0.3} L ${inner + sign * radius * 0.5} ${baseY + unit * 0.9} Z"
+      />${active
+        ? html`<circle
+            cx="${thumbX}"
+            cy="${thumbY - radius * 0.6}"
+            r="${radius * 0.23}"
+            class="finger-tip"
+          />`
+        : ''}</g
+    >`;
+    markup += html`<g
+      class="overlay-hand"
+      data-hand="${side === 0 ? 'left' : 'right'}"
+      style="transform: ${previous[side] || transform}"
+      data-transform="${transform}"
+      >${palm}${fingerMarkup}${thumb}</g
+    >`;
   }
   svg.innerHTML = markup;
+  // The overlay is re-rendered on every key; start from the old position and
+  // let CSS animate to the new one so the hand glides instead of jumping.
+  svg.getBoundingClientRect();
+  svg.querySelectorAll('.overlay-hand').forEach((g) => {
+    g.style.transform = g.dataset.transform;
+  });
 }
 window.addEventListener('resize', () => {
   if (data.settings.hands) updateKeyboard();
