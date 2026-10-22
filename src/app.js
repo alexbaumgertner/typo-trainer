@@ -340,6 +340,10 @@ function keyMarkup(char, row, col) {
           : language().shift[row]?.[col] || '',
       )}</span
     >${esc(keyCap(language(), char))}`;
+  const latin = latinCap(row, col);
+  const latinLabel = latin
+    ? html`<span class="latin-label" aria-hidden="true">${esc(latin)}</span>`
+    : '';
   return choosing
     ? html`<button
         type="button"
@@ -352,15 +356,83 @@ function keyMarkup(char, row, col) {
           : ''}"
         title="${esc(char)} · ${esc(t(fingers[f]))}"
       >
-        ${label}
+        ${label}${latinLabel}
       </button>`
     : html`<div
         class="${classes}"
         data-key="${row}-${col}"
         title="${esc(char)}${level === 'full' ? ` · ${esc(t(fingers[f]))}` : ''}"
       >
-        ${label}
+        ${label}${latinLabel}
       </div>`;
+}
+// US ANSI key under the same physical position; ISO layouts have an extra key left of row 3.
+function latinCap(row, col) {
+  if (languageId === 'en') return '';
+  const us = builtinLanguages.en;
+  const index = language().iso && row === 3 ? col - 1 : col;
+  const char = index >= 0 ? us.rows[row]?.[index] : '';
+  return char ? keyCap(us, char) : '';
+}
+function latinStyle() {
+  const fonts = {
+    sans: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+    serif: 'Georgia, "Times New Roman", serif',
+    mono: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace',
+  };
+  return `--latin-color:${data.settings.latinColor};--latin-font:${fonts[data.settings.latinFont]}`;
+}
+function latinControls(prefix) {
+  return html`<label class="check-label"
+      ><input
+        id="${prefix}latin-hints"
+        type="checkbox"
+        ${data.settings.latinHints ? 'checked' : ''}
+      />${t('Латинские буквы (US)')}</label
+    ><label class="check-label"
+      >${t('Шрифт латиницы')}
+      <select id="${prefix}latin-font" aria-label="${t('Шрифт латинских букв')}">
+        ${[
+          ['sans', t('Без засечек')],
+          ['serif', t('С засечками')],
+          ['mono', t('Моноширинный')],
+        ]
+          .map(
+            ([value, label]) =>
+              html`<option value="${value}" ${data.settings.latinFont === value ? 'selected' : ''}>
+                ${label}
+              </option>`,
+          )
+          .join('')}
+      </select> </label
+    ><label class="check-label"
+      >${t('Цвет латиницы')}
+      <input
+        id="${prefix}latin-color"
+        type="color"
+        value="${esc(data.settings.latinColor)}"
+        aria-label="${t('Цвет латинских букв')}"
+    /></label>`;
+}
+function applyLatinSettings() {
+  const board = $('.keyboard');
+  if (!board) return;
+  board.style.cssText = latinStyle();
+  board.classList.toggle('latin-hints', data.settings.latinHints);
+}
+function bindLatinControls(prefix, onChange) {
+  const fields = {
+    'latin-hints': 'latinHints',
+    'latin-font': 'latinFont',
+    'latin-color': 'latinColor',
+  };
+  for (const [id, setting] of Object.entries(fields))
+    $(`#${prefix}${id}`)?.addEventListener('change', (e) => {
+      data.settings[setting] = setting === 'latinHints' ? e.target.checked : e.target.value;
+      save();
+      applyLatinSettings();
+      onChange?.(setting);
+    });
 }
 function keyboard() {
   return html`<section
@@ -404,14 +476,15 @@ function keyboard() {
           ><input id="letters" type="checkbox" ${data.settings.letters ? 'checked' : ''} />${t(
             'Буквы на клавишах',
           )}</label
-        >
+        >${latinControls('')}
       </div>
     </div>
     <div class="keyboard-scroll">
       <div
         class="keyboard ${data.settings.colors ? 'colored' : ''} ${data.settings.letters
           ? ''
-          : 'no-letters'}"
+          : 'no-letters'} ${data.settings.latinHints ? 'latin-hints' : ''}"
+        style="${latinStyle()}"
       >
         <div class="key-row">
           ${Array.from(language().rows[0])
@@ -1132,6 +1205,15 @@ function render() {
   });
 }
 function bindSettings() {
+  bindLatinControls('', (setting) => {
+    for (const [id, key] of [
+      ['profile-latin-hints', 'latinHints'],
+      ['profile-latin-font', 'latinFont'],
+      ['profile-latin-color', 'latinColor'],
+    ])
+      if (key === setting && $(`#${id}`))
+        $(`#${id}`)[key === 'latinHints' ? 'checked' : 'value'] = data.settings[key];
+  });
   $('#hint-mode')?.addEventListener('change', (event) => {
     data.settings.hintMode = event.target.value;
     recordHelp();
@@ -1954,6 +2036,7 @@ function openProfile() {
                 >`,
             )
             .join('')}
+          ${latinControls('profile-')}
           <label class="check-label" for="profile-hint-mode"
             >${t('Подсказки движения')}
             <select id="profile-hint-mode">
@@ -2007,6 +2090,14 @@ function openProfile() {
   for (const key of ['colors', 'letters', 'hands'])
     $(`#profile-${key}`).addEventListener('change', saveProfileInputs);
   $('#profile-hint-mode').addEventListener('change', saveProfileInputs);
+  bindLatinControls('profile-', (setting) => {
+    const id = { latinHints: 'latin-hints', latinFont: 'latin-font', latinColor: 'latin-color' }[
+      setting
+    ];
+    if ($(`#${id}`))
+      $(`#${id}`)[setting === 'latinHints' ? 'checked' : 'value'] = data.settings[setting];
+    $('#profile-save-state').textContent = t('Сохранено в этом браузере.');
+  });
   $('#profile-form').addEventListener('submit', (e) => {
     e.preventDefault();
     saveProfileInputs();

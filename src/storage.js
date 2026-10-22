@@ -5,7 +5,16 @@ export const STORAGE_KEY = 'ritm-v1';
 const BACKUP_FORMAT = 'ritm-profile';
 const BACKUP_VERSION = 1;
 const ROW_LENGTHS = [13, 12, 11, 10];
-const SETTING_KEYS = ['colors', 'letters', 'hands', 'guidance', 'hideSpeed', 'analytics'];
+const SETTING_KEYS = [
+  'colors',
+  'letters',
+  'hands',
+  'latinHints',
+  'guidance',
+  'hideSpeed',
+  'analytics',
+];
+export const LATIN_FONTS = ['sans', 'serif', 'mono'];
 
 export function emptyProfile() {
   return {
@@ -23,6 +32,9 @@ export function emptyProfile() {
       colors: true,
       letters: true,
       hands: false,
+      latinHints: false,
+      latinFont: 'sans',
+      latinColor: '#7a4fd0',
       hintMode: 'auto',
       guidance: true,
       hideSpeed: false,
@@ -84,6 +96,17 @@ function readSettings(settings) {
       t('Некорректный режим подсказок.'),
     );
     result.hintMode = settings.hintMode;
+  }
+  if (settings.latinFont !== undefined) {
+    requireValid(LATIN_FONTS.includes(settings.latinFont), t('Некорректный шрифт латинских букв.'));
+    result.latinFont = settings.latinFont;
+  }
+  if (settings.latinColor !== undefined) {
+    requireValid(
+      typeof settings.latinColor === 'string' && /^#[0-9a-f]{6}$/i.test(settings.latinColor),
+      t('Некорректный цвет латинских букв.'),
+    );
+    result.latinColor = settings.latinColor.toLowerCase();
   }
   return result;
 }

@@ -622,6 +622,23 @@ button.key:focus-visible {
   font-size: 7px;
   opacity: 0.55;
 }
+.key .latin-label {
+  display: none;
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  font-family: var(--latin-font, inherit);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--latin-color, #7a4fd0);
+}
+.keyboard.latin-hints .latin-label {
+  display: block;
+}
+.keyboard.no-letters .latin-label {
+  font-size: 14px;
+}
 .key.special {
   font-size: 9px;
   color: #a0a8b8;
@@ -1817,4 +1834,13 @@ dialog::backdrop {
 }
 .keyboard-options {
   flex-wrap: wrap;
+}
+.check-label input[type='color'] {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #d9dfeb;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
 }
