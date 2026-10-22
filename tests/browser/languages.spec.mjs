@@ -66,7 +66,8 @@ test('accent composition, Unicode normalization and independent interface langua
   await page.locator('#close-dialog').click();
   await page.locator('[data-view="learn"]').click();
   await page.locator('[data-action="start-lesson"]').click();
-  await page.keyboard.insertText('f');
+  const firstChar = (await page.locator('#typing-text').textContent())[0];
+  await page.keyboard.insertText(firstChar);
   await page.locator('#interface-language').selectOption('de');
   await expect(page.locator('#typing-count')).toHaveText(/^1 \/ \d+ Zeichen$/);
   await expect(page.locator('.pause-cover')).toBeVisible();
