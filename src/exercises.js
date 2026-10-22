@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 import { keyInfo, seededRandom } from './course.js';
 
 // The selected lesson and all preceding lessons define what has been shown in this course.
@@ -10,10 +11,10 @@ export function learnedCharacters(lessons, index) {
 }
 
 export function keyLabel(language, char) {
-  if (char === ' ') return 'Пробел';
+  if (char === ' ') return t('Пробел');
   const info = keyInfo(language, char);
   if (!info?.shift) return char;
-  return `${char} (${info.finger < 4 ? 'правый' : 'левый'} Shift)`;
+  return `${char} (${info.finger < 4 ? t('правый') : t('левый')} Shift)`;
 }
 
 // Older history has no per-key denominator and cannot support an error rate.

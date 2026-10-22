@@ -1,10 +1,12 @@
+import { t, getLocale, setLocale, interfaceLanguages, translateDocument } from './i18n.js';
 import { html } from './ui/html.js';
 import { HandMotion, handPose } from './ui/hand-motion.js';
 import {
   builtinLanguages,
   fingers,
   fingerClasses,
-  zoneRows,
+  fingerAt,
+  keyLabel as keyCap,
   keyInfo,
   lessonsFor,
   drill,
@@ -51,6 +53,11 @@ try {
 } catch {
   loadError = true;
 }
+setLocale(data.uiLanguage);
+translateDocument();
+$('#interface-language').innerHTML = Object.entries(interfaceLanguages)
+  .map(([id, name]) => html`<option value="${id}">${name}</option>`)
+  .join('');
 let languages = { ...builtinLanguages };
 for (const [id, l] of Object.entries(data.customLanguages || {})) {
   if (
@@ -101,7 +108,9 @@ function save() {
     return true;
   } catch {
     storageAvailable = false;
-    toast('Не удалось сохранить данные. Проверьте свободное место и доступ к хранилищу браузера.');
+    toast(
+      t('Не удалось сохранить данные. Проверьте свободное место и доступ к хранилищу браузера.'),
+    );
     return false;
   }
 }
@@ -112,7 +121,7 @@ function toast(message) {
   toast.timer = setTimeout(() => $('#toast').classList.remove('visible'), 4500);
 }
 function layoutName() {
-  return languageId === 'ru' || languageId === 'en' ? languageId : 'custom';
+  return Object.hasOwn(builtinLanguages, languageId) ? languageId : 'custom';
 }
 // The movement-hint mode (auto/always/off); never anything the user typed.
 function hintMode() {
@@ -160,10 +169,16 @@ function reinforcementHint(id) {
   const state = lessonState(data, languageId, id);
   if (!state.completed || state.mastered) return '';
   if (!state.firstPassedDay)
-    return 'Старое достижение сохранено. Для закрепления нужны две новые попытки от 95% в разные дни; вторую проведите без подсказок.';
+    return t(
+      'Старое достижение сохранено. Для закрепления нужны две новые попытки от 95% в разные дни; вторую проведите без подсказок.',
+    );
   return localDay() > state.firstPassedDay
-    ? 'Самостоятельную проверку можно пройти сейчас: выключите схему клавиатуры и достигните точности от 95%.'
-    : 'Вернитесь к уроку в другой календарный день и пройдите его без подсказок с точностью от 95%.';
+    ? t(
+        'Самостоятельную проверку можно пройти сейчас: выключите схему клавиатуры и достигните точности от 95%.',
+      )
+    : t(
+        'Вернитесь к уроку в другой календарный день и пройдите его без подсказок с точностью от 95%.',
+      );
 }
 function currentHelpFlags() {
   return data.settings.guidance
@@ -179,13 +194,13 @@ function recordHelp() {
   if (session) recordSessionHelp(session, currentHelpFlags());
 }
 function helpLabel(flags) {
-  if (flags === 0) return 'без подсказок';
+  if (flags === 0) return t('без подсказок');
   return [
-    'клавиатура',
-    flags & 2 ? 'зоны' : '',
-    flags & 4 ? 'буквы' : '',
-    flags & 8 ? 'руки' : '',
-    flags & 32 ? 'палец' : flags & 16 ? 'следующая клавиша' : '',
+    t('клавиатура'),
+    flags & 2 ? t('зоны') : '',
+    flags & 4 ? t('буквы') : '',
+    flags & 8 ? t('руки') : '',
+    flags & 32 ? t('палец') : flags & 16 ? t('следующая клавиша') : '',
   ]
     .filter(Boolean)
     .join(', ');
@@ -194,8 +209,8 @@ function currentHintLevel() {
   return hintLevel(data.settings.hintMode, data.progress[languageId], lessons().length);
 }
 function sidebar() {
-  $('#profile-label').textContent = data.profile.name || 'Мой профиль';
-  $('#profile-avatar').textContent = Array.from(data.profile.name || 'Я')[0].toUpperCase();
+  $('#profile-label').textContent = data.profile.name || t('Мой профиль');
+  $('#profile-avatar').textContent = Array.from(data.profile.name || t('Я'))[0].toUpperCase();
   $('#language').innerHTML = Object.entries(languages)
     .map(
       ([id, l]) =>
@@ -222,7 +237,11 @@ function sidebar() {
         >
           <span
             class="lesson-num ${mastered(l.id) ? 'mastered' : completed(l.id) ? 'done' : ''}"
-            title="${mastered(l.id) ? 'Закреплено' : completed(l.id) ? 'Выполнено' : 'В процессе'}"
+            title="${mastered(l.id)
+              ? t('Закреплено')
+              : completed(l.id)
+                ? t('Выполнено')
+                : t('В процессе')}"
             >${mastered(l.id)
               ? '★'
               : completed(l.id)
@@ -235,7 +254,7 @@ function sidebar() {
     })
     .join('');
   const done = lessons().filter((l) => completed(l.id)).length;
-  $('#course-count').textContent = `${done} / ${lessons().length} выполнено`;
+  $('#course-count').textContent = `${done} / ${lessons().length} ${t('выполнено')}`;
   $('#course-fill').style.width = `${(100 * done) / lessons().length}%`;
   document.querySelectorAll('.nav').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
@@ -245,13 +264,13 @@ function sidebar() {
 function hands() {
   const home = Array.from(language().rows[2]);
   const homeKeys = [home.slice(0, 4), home.slice(6, 10)]
-    .map((keys) => keys.join(' ').toUpperCase())
+    .map((keys) => keys.map((key) => keyCap(language(), key)).join(' '))
     .join('     ');
   return html`<div class="hand-panel">
     <svg
       viewBox="0 0 320 135"
       role="img"
-      aria-label="Обе руки: пальцы над клавишами основного ряда, большие пальцы у пробела"
+      aria-label="${t('Обе руки: пальцы над клавишами основного ряда, большие пальцы у пробела')}"
     >
       <g stroke="#c9d1e4" stroke-width="1.6" fill="#f6f8fe">
         <path
@@ -289,7 +308,7 @@ function hands() {
                 font-size="9"
                 fill="#6a7b96"
                 font-family="Arial"
-                >${esc(home[[0, 1, 2, 3, 6, 7, 8, 9][f]]?.toUpperCase() || '')}</text
+                >${esc(keyCap(language(), home[[0, 1, 2, 3, 6, 7, 8, 9][f]] || '') || '')}</text
               >`,
         )
         .join('')}
@@ -302,13 +321,13 @@ function hands() {
       <path d="M28 131H292" stroke="#e6eaf4" stroke-width="1" />
     </svg>
     <div class="home-keys">${esc(homeKeys)}</div>
-    <span class="hand-caption">Указательные пальцы — на клавишах с выступами</span>
+    <span class="hand-caption">${t('Указательные пальцы — на клавишах с выступами')}</span>
   </div>`;
 }
 function keyMarkup(char, row, col) {
   const choosing = view === 'practice' && retrainingSetup && !session;
   const selected = (data.retrainingKeys[languageId] || []).includes(char);
-  const f = zoneRows[row][col],
+  const f = fingerAt(language(), row, col),
     next = session?.text[session.position],
     info = keyInfo(language(), next || (view === 'learn' ? lesson().text[0] : ''));
   const level = currentHintLevel();
@@ -316,11 +335,11 @@ function keyMarkup(char, row, col) {
   const classes = `key ${fingerClasses[f]} ${row === 2 && [3, 6].includes(col) ? 'home' : ''} ${isNext ? 'next' : ''} ${choosing && selected ? 'selected' : ''}`;
   const label = html`<span class="shift-label"
       >${esc(
-        language().shift[row]?.[col] === char.toUpperCase()
+        language().shift[row]?.[col] === keyCap(language(), char)
           ? ''
           : language().shift[row]?.[col] || '',
       )}</span
-    >${esc(char.toUpperCase())}`;
+    >${esc(keyCap(language(), char))}`;
   return choosing
     ? html`<button
         type="button"
@@ -328,15 +347,17 @@ function keyMarkup(char, row, col) {
         data-key="${row}-${col}"
         data-retraining-key="${esc(char)}"
         aria-pressed="${selected}"
-        aria-label="${esc(char.toUpperCase())}, ${esc(fingers[f])}${selected ? ', выбрана' : ''}"
-        title="${esc(char)} · ${esc(fingers[f])}"
+        aria-label="${esc(keyCap(language(), char))}, ${esc(t(fingers[f]))}${selected
+          ? t(', выбрана')
+          : ''}"
+        title="${esc(char)} · ${esc(t(fingers[f]))}"
       >
         ${label}
       </button>`
     : html`<div
         class="${classes}"
         data-key="${row}-${col}"
-        title="${esc(char)}${level === 'full' ? ` · ${esc(fingers[f])}` : ''}"
+        title="${esc(char)}${level === 'full' ? ` · ${esc(t(fingers[f]))}` : ''}"
       >
         ${label}
       </div>`;
@@ -344,20 +365,20 @@ function keyMarkup(char, row, col) {
 function keyboard() {
   return html`<section
     class="keyboard-card"
-    aria-label="Подсказка клавиатуры"
+    aria-label="${t('Подсказка клавиатуры')}"
     ${session && !data.settings.guidance ? 'hidden' : ''}
   >
     <div class="keyboard-heading">
-      <h2>Клавиатура · ${esc(language().layout)}</h2>
+      <h2>${t('Клавиатура ·')} ${esc(language().layout)}</h2>
       <div class="keyboard-options">
-        <button class="text-button" data-action="hand-demo">Показать движение</button>
+        <button class="text-button" data-action="hand-demo">${t('Показать движение')}</button>
         <label class="check-label hint-mode-label" for="hint-mode"
-          >Подсказки
-          <select id="hint-mode" aria-label="Режим подсказок">
+          >${t('Подсказки')}
+          <select id="hint-mode" aria-label="${t('Режим подсказок')}">
             ${[
-              ['auto', 'Авто'],
-              ['always', 'Всегда'],
-              ['off', 'Выкл.'],
+              ['auto', t('Авто')],
+              ['always', t('Всегда')],
+              ['off', t('Выкл.')],
             ]
               .map(
                 ([value, label]) =>
@@ -372,14 +393,17 @@ function keyboard() {
           </select>
         </label>
         <label class="check-label"
-          ><input id="hands" type="checkbox" ${data.settings.hands ? 'checked' : ''} />Показать
-          руки</label
+          ><input id="hands" type="checkbox" ${data.settings.hands ? 'checked' : ''} />${t(
+            'Показать руки',
+          )}</label
         ><label class="check-label"
-          ><input id="colors" type="checkbox" ${data.settings.colors ? 'checked' : ''} />Зоны
-          пальцев</label
+          ><input id="colors" type="checkbox" ${data.settings.colors ? 'checked' : ''} />${t(
+            'Зоны пальцев',
+          )}</label
         ><label class="check-label"
-          ><input id="letters" type="checkbox" ${data.settings.letters ? 'checked' : ''} />Буквы на
-          клавишах</label
+          ><input id="letters" type="checkbox" ${data.settings.letters ? 'checked' : ''} />${t(
+            'Буквы на клавишах',
+          )}</label
         >
       </div>
     </div>
@@ -418,7 +442,7 @@ function keyboard() {
         <div class="key-row">
           <div class="key special">Ctrl</div>
           <div class="key special">Alt</div>
-          <div class="key space" id="space-key">Пробел</div>
+          <div class="key space" id="space-key">${t('Пробел')}</div>
           <div class="key special">Alt</div>
           <div class="key special">Ctrl</div>
         </div>
@@ -427,7 +451,7 @@ function keyboard() {
           class="keyboard-hands"
           xmlns="http://www.w3.org/2000/svg"
           role="img"
-          aria-label="Положение рук над клавиатурой"
+          aria-label="${t('Положение рук над клавиатурой')}"
           hidden
         ></svg>
       </div>
@@ -438,10 +462,10 @@ function keyboard() {
           (c, i) =>
             html`<span
               ><i class="legend-dot" style="background:var(--${c})"></i>${[
-                'Мизинец',
-                'Безымянный',
-                'Средний',
-                'Указательный',
+                t('Мизинец'),
+                t('Безымянный'),
+                t('Средний'),
+                t('Указательный'),
               ][i]}</span
             >`,
         )
@@ -449,7 +473,7 @@ function keyboard() {
     </div>
     <div class="finger-help">
       <p id="finger-hint">
-        <span class="hint-symbol">→</span> <strong>Каждому пальцу — своя зона.</strong>
+        <span class="hint-symbol">→</span> <strong>${t('Каждому пальцу — своя зона.')}</strong>
       </p>
       <p id="hint-explanation"></p>
     </div>
@@ -458,125 +482,135 @@ function keyboard() {
 function basics() {
   const h = Array.from(language().rows[2]);
   return html`<div class="basics-content">
-    <h3>1. Найдите исходную позицию без взгляда на клавиатуру</h3>
+    <h3>${t('1. Найдите исходную позицию без взгляда на клавиатуру')}</h3>
     <p>
-      Проведите указательными пальцами по среднему ряду: на клавишах
-      <strong>${esc(h[3].toUpperCase())} и ${esc(h[6].toUpperCase())}</strong> находятся небольшие
-      выступы. Положите на них указательные пальцы. Затем расположите остальные пальцы на соседних
-      клавишах. Пальцы слегка согнуты, кисти продолжают линию предплечий.
+      ${t('Проведите указательными пальцами по среднему ряду: на клавишах')}
+      <strong>${esc(keyCap(language(), h[3]))} ${t('и')} ${esc(keyCap(language(), h[6]))}</strong>
+      ${t(
+        'находятся небольшие выступы. Положите на них указательные пальцы. Затем расположите остальные пальцы на соседних клавишах. Пальцы слегка согнуты, кисти продолжают линию предплечий.',
+      )}
     </p>
     <table class="finger-table">
       <thead>
         <tr>
-          <th>Палец</th>
-          <th>Левая рука</th>
-          <th>Правая рука</th>
+          <th>${t('Палец')}</th>
+          <th>${t('Левая рука')}</th>
+          <th>${t('Правая рука')}</th>
         </tr>
       </thead>
       <tbody>
-        ${['Мизинец', 'Безымянный', 'Средний', 'Указательный']
+        ${[t('Мизинец'), t('Безымянный'), t('Средний'), t('Указательный')]
           .map(
             (f, i) =>
               html`<tr>
                 <td>${f}</td>
-                <td>${esc(h[i].toUpperCase())}</td>
-                <td>${esc(h[9 - i].toUpperCase())}</td>
+                <td>${esc(keyCap(language(), h[i]))}</td>
+                <td>${esc(keyCap(language(), h[9 - i]))}</td>
               </tr>`,
           )
           .join('')}
         <tr>
-          <td>Большой</td>
-          <td colspan="2">Пробел — удобным большим пальцем</td>
+          <td>${t('Большой')}</td>
+          <td colspan="2">${t('Пробел — удобным большим пальцем')}</td>
         </tr>
       </tbody>
     </table>
-    <h3>2. Двигайте нужный палец и возвращайте его домой</h3>
+    <h3>${t('2. Двигайте нужный палец и возвращайте его домой')}</h3>
     <p>
-      Цвет на клавиатуре показывает зону пальца. Указательные обслуживают две колонки, остальные
-      пальцы — свои зоны. Нажмите клавишу легко и верните палец на исходную клавишу. Оставляйте
-      остальные пальцы рядом с основным рядом, не зажимайте кисти. Для дальних клавиш допустимо
-      небольшое движение руки.
+      ${t(
+        'Цвет на клавиатуре показывает зону пальца. Указательные обслуживают две колонки, остальные пальцы — свои зоны. Нажмите клавишу легко и верните палец на исходную клавишу. Оставляйте остальные пальцы рядом с основным рядом, не зажимайте кисти. Для дальних клавиш допустимо небольшое движение руки.',
+      )}
     </p>
-    <h3>3. Положение тела и техника</h3>
+    <h3>${t('3. Положение тела и техника')}</h3>
     <p>
-      Сядьте удобно, с опорой для спины и стоп. Расслабьте плечи; локти держите близко к телу,
-      предплечья — примерно горизонтально. Клавиатура должна быть перед вами. Во время печати не
-      переносите вес на запястья. Смотрите на экран; если забыли положение рук, найдите выступы
-      наощупь. При дискомфорте остановитесь и измените положение.
+      ${t(
+        'Сядьте удобно, с опорой для спины и стоп. Расслабьте плечи; локти держите близко к телу, предплечья — примерно горизонтально. Клавиатура должна быть перед вами. Во время печати не переносите вес на запястья. Смотрите на экран; если забыли положение рук, найдите выступы наощупь. При дискомфорте остановитесь и измените положение.',
+      )}
     </p>
-    <h3>4. Shift, пробел и исправления</h3>
+    <h3>${t('4. Shift, пробел и исправления')}</h3>
     <p>
-      Пробел нажимайте большим пальцем. Для заглавной буквы удерживайте Shift мизинцем
-      противоположной руки. Например, для буквы ${esc(h[0].toUpperCase())} используйте правый Shift.
-      После буквы отпустите Shift. В тренажёре ошибка останавливает курсор: нажмите Backspace и
-      введите нужный символ. Исправление не убирает ошибку из статистики точности.
+      ${t(
+        'Пробел нажимайте большим пальцем. Для заглавной буквы удерживайте Shift мизинцем противоположной руки. Например, для буквы',
+      )}
+      ${esc(keyCap(language(), h[0]))}
+      ${t(
+        'используйте правый Shift. После буквы отпустите Shift. В тренажёре ошибка останавливает курсор: нажмите Backspace и введите нужный символ. Исправление не убирает ошибку из статистики точности.',
+      )}
     </p>
-    <h3>5. Как строить занятия</h3>
+    <h3>${t('5. Как строить занятия')}</h3>
     <p>
-      Начните с 10–15 минут в день: повторите прошлый урок, выполните новый и потренируйте трудные
-      клавиши. Цель курса — не менее 95% точности; это выбранный ориентир тренажёра, а не
-      универсальная норма. Уроки можно открыть в любом порядке, но новичку полезно двигаться
-      последовательно. При усталости сделайте перерыв, а скорость увеличивайте постепенно.
+      ${t(
+        'Начните с 10–15 минут в день: повторите прошлый урок, выполните новый и потренируйте трудные клавиши. Цель курса — не менее 95% точности; это выбранный ориентир тренажёра, а не универсальная норма. Уроки можно открыть в любом порядке, но новичку полезно двигаться последовательно. При усталости сделайте перерыв, а скорость увеличивайте постепенно.',
+      )}
     </p>
     <p class="sources">
-      Принципы постановки рук и техники:
-      <a href="https://www.ratatype.com/learn/" target="_blank" rel="noopener">Ratatype</a>. Подход
-      к повторению уроков и визуальным подсказкам:
-      <a href="https://www.typingclub.com/" target="_blank" rel="noopener">TypingClub</a>.
-      Упражнения и лекции написаны для этого курса.
+      ${t('Принципы постановки рук и техники:')}
+      <a href="https://www.ratatype.com/learn/" target="_blank" rel="noopener">Ratatype</a>${t(
+        '. Подход к повторению уроков и визуальным подсказкам:',
+      )} <a href="https://www.typingclub.com/" target="_blank" rel="noopener">TypingClub</a>${t(
+        '. Упражнения и лекции написаны для этого курса.',
+      )}
     </p>
   </div>`;
 }
 function learnPage() {
   const l = lesson();
   return html`<div class="breadcrumb">
-      Обучение <span>›</span> ${esc(language().name)} <span>›</span
-      ><span class="current">Урок ${l.id + 1}</span>
+      ${t('Обучение')} <span>›</span> ${esc(language().name)} <span>›</span
+      ><span class="current">${t('Урок')} ${l.id + 1}</span>
     </div>
     <div class="page-heading">
       <div>
-        <p class="eyebrow">ШАГ ${String(l.id + 1).padStart(2, '0')} ИЗ ${lessons().length}</p>
+        <p class="eyebrow">
+          ${t('ШАГ')} ${String(l.id + 1).padStart(2, '0')} ${t('ИЗ')} ${lessons().length}
+        </p>
         <h1>${l.title}</h1>
       </div>
       <span class="badge"
-        ><i></i>${l.id === 0 ? 'Начинаем с нуля' : 'Точность прежде скорости'}</span
+        ><i></i>${l.id === 0 ? t('Начинаем с нуля') : t('Точность прежде скорости')}</span
       >
     </div>
     <p class="subtitle">
       ${l.id === 0
-        ? 'Познакомьтесь с клавиатурой. Найдите опору для каждого пальца.'
-        : 'Новые движения, немного теории и спокойная практика.'}
+        ? t('Познакомьтесь с клавиатурой. Найдите опору для каждого пальца.')
+        : t('Новые движения, немного теории и спокойная практика.')}
     </p>
     <p class="progress-explainer">
       <strong
-        >${mastered(l.id) ? 'Закреплено ★' : completed(l.id) ? 'Выполнено ✓' : 'В процессе'}</strong
+        >${mastered(l.id)
+          ? t('Закреплено ★')
+          : completed(l.id)
+            ? t('Выполнено ✓')
+            : t('В процессе')}</strong
       >
-      · «Выполнено» — точность от 95% в одной попытке. «Закреплено» — ещё одна попытка от 95% без
-      подсказок в другой календарный день. Это ориентиры курса, не научно установленные пороги.
+      ${t(
+        '· «Выполнено» — точность от 95% в одной попытке. «Закреплено» — ещё одна попытка от 95% без подсказок в другой календарный день. Это ориентиры курса, не научно установленные пороги.',
+      )}
       ${reinforcementHint(l.id)}
     </p>
     <div class="lesson-tabs">
       <button class="lesson-tab ${tab === 'lecture' ? 'active' : ''}" data-tab="lecture">
-        <span class="tab-dot">1</span>Небольшая лекция</button
+        <span class="tab-dot">1</span>${t('Небольшая лекция')}</button
       ><button class="lesson-tab ${tab === 'training' ? 'active' : ''}" data-tab="training">
-        <span class="tab-dot">2</span>Практика
+        <span class="tab-dot">2</span>${t('Практика')}
       </button>
     </div>
     <p class="mobile-note">
-      Для обучения десятью пальцами подключите физическую клавиатуру. На телефоне можно читать
-      лекции.
+      ${t(
+        'Для обучения десятью пальцами подключите физическую клавиатуру. На телефоне можно читать лекции.',
+      )}
     </p>
     ${tab === 'lecture'
       ? html`<section class="lecture-card">
           <div class="lecture-copy">
-            <div class="small-label">ПЕРЕД ПЕРВЫМ НАЖАТИЕМ</div>
-            <h2>${l.id === 0 ? 'Ваши пальцы уже знают, где начать' : l.title}</h2>
+            <div class="small-label">${t('ПЕРЕД ПЕРВЫМ НАЖАТИЕМ')}</div>
+            <h2>${l.id === 0 ? t('Ваши пальцы уже знают, где начать') : l.title}</h2>
             <p>${esc(l.focus)}</p>
             ${l.keys
               ? html`<div class="key-pills">
                   ${Array.from(l.keys)
                     .slice(0, 14)
-                    .map((c) => html`<span class="key-pill">${esc(c.toUpperCase())}</span>`)
+                    .map((c) => html`<span class="key-pill">${esc(keyCap(language(), c))}</span>`)
                     .join('')}
                 </div>`
               : ''}${l.keys
@@ -586,9 +620,9 @@ function learnPage() {
                     .map(
                       (f) =>
                         html`<span
-                          ><strong>${fingers[f]}:</strong> ${Array.from(l.keys)
+                          ><strong>${t(fingers[f])}:</strong> ${Array.from(l.keys)
                             .filter((c) => keyInfo(language(), c)?.finger === f)
-                            .map((c) => esc(c.toUpperCase()))
+                            .map((c) => esc(keyCap(language(), c)))
                             .join(' ')}</span
                         >`,
                     )
@@ -597,8 +631,8 @@ function learnPage() {
               : ''}
             <div class="lecture-actions">
               <button class="primary" data-action="start-lesson">
-                Начать практику <span>→</span></button
-              ><span class="reading-time">около 2 минут</span>
+                ${t('Начать практику')} <span>→</span></button
+              ><span class="reading-time">${t('около 2 минут')}</span>
             </div>
           </div>
           ${hands()}
@@ -608,28 +642,30 @@ function learnPage() {
           <div class="foundation-item">
             <span class="foundation-icon">◎</span>
             <div>
-              <h3>Смотрите на экран</h3>
-              <p>Нащупайте выступы на клавишах.<br />Клавиатура подскажет движение.</p>
+              <h3>${t('Смотрите на экран')}</h3>
+              <p>
+                ${t('Нащупайте выступы на клавишах.')}<br />${t('Клавиатура подскажет движение.')}
+              </p>
             </div>
           </div>
           <div class="foundation-item">
             <span class="foundation-icon">⌁</span>
             <div>
-              <h3>Сначала точность</h3>
-              <p>Не спешите. Ровный ритм важнее<br />количества нажатий.</p>
+              <h3>${t('Сначала точность')}</h3>
+              <p>${t('Не спешите. Ровный ритм важнее')}<br />${t('количества нажатий.')}</p>
             </div>
           </div>
           <div class="foundation-item">
             <span class="foundation-icon">↶</span>
             <div>
-              <h3>Возвращайтесь домой</h3>
-              <p>После нажатия пальцы снова<br />над основным рядом.</p>
+              <h3>${t('Возвращайтесь домой')}</h3>
+              <p>${t('После нажатия пальцы снова')}<br />${t('над основным рядом.')}</p>
             </div>
           </div>
         </div>`
       : ''}
     <details class="basics" ${l.id === 0 && tab === 'lecture' ? 'open' : ''}>
-      <summary>Постановка пальцев и техника · подробная инструкция</summary>
+      <summary>${t('Постановка пальцев и техника · подробная инструкция')}</summary>
       ${basics()}
     </details>`;
 }
@@ -637,56 +673,61 @@ function trainingMarkup() {
   if (!session) prepareLessonSession();
   return html`<div class="stats-strip">
       <div class="live-stat">
-        <span>СКОРОСТЬ</span><b id="live-speed">${data.settings.hideSpeed ? '—' : '0'}</b
-        ><small>зн/мин</small>
+        <span>${t('СКОРОСТЬ')}</span><b id="live-speed">${data.settings.hideSpeed ? '—' : '0'}</b
+        ><small>${t('зн/мин')}</small>
       </div>
-      <div class="live-stat"><span>ТОЧНОСТЬ</span><b id="live-accuracy">100%</b></div>
-      <div class="live-stat"><span>ВРЕМЯ</span><b id="live-time">0:00</b></div>
+      <div class="live-stat"><span>${t('ТОЧНОСТЬ')}</span><b id="live-accuracy">100%</b></div>
+      <div class="live-stat"><span>${t('ВРЕМЯ')}</span><b id="live-time">0:00</b></div>
       <div class="live-stat">
         ${sessionKind === 'retraining'
-          ? '<span>ДРУГИМ ПАЛЬЦЕМ</span><b id="live-finger-marks">0</b><small>самопроверка</small>'
-          : '<span>ЦЕЛЬ</span><b>95%</b><small>точности</small>'}
+          ? html`<span>${t('ДРУГИМ ПАЛЬЦЕМ')}</span><b id="live-finger-marks">0</b
+              ><small>${t('самопроверка')}</small>`
+          : html`<span>${t('ЦЕЛЬ')}</span><b>95%</b><small>${t('точности')}</small>`}
       </div>
     </div>
     <div class="training-options">
       <label class="check-label"
-        ><input id="hide-speed" type="checkbox" ${data.settings.hideSpeed ? 'checked' : ''} />Скрыть
-        скорость во время набора</label
+        ><input id="hide-speed" type="checkbox" ${data.settings.hideSpeed ? 'checked' : ''} />${t(
+          'Скрыть скорость во время набора',
+        )}</label
       >
       <label class="check-label"
-        ><input
-          id="guidance"
-          type="checkbox"
-          ${data.settings.guidance ? 'checked' : ''}
-        />Показывать подсказки клавиатуры</label
+        ><input id="guidance" type="checkbox" ${data.settings.guidance ? 'checked' : ''} />${t(
+          'Показывать подсказки клавиатуры',
+        )}</label
       >
     </div>
     <section class="typing-card">
       <div class="typing-top">
         <b>${esc(sessionTitle || lesson().title)}</b
-        ><span id="typing-count">0 / ${session.text.length} символов</span>
+        ><span id="typing-count">0 / ${session.text.length} ${t('символов')}</span>
       </div>
       <div
         class="typing-text"
         id="typing-text"
         tabindex="0"
         role="button"
-        aria-label="Сфокусировать поле набора"
+        aria-label="${t('Сфокусировать поле набора')}"
       ></div>
       <textarea
         id="typing-input"
         class="typing-input"
-        aria-label="Поле набора: повторяйте текст упражнения"
+        aria-label="${t('Поле набора: повторяйте текст упражнения')}"
         aria-describedby="typing-feedback"
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
       ></textarea>
       <div class="typing-message">
-        <span id="typing-feedback" role="status">Нажмите «Начать», затем печатайте текст выше.</span
+        <span id="typing-feedback" role="status"
+          >${t('Нажмите «Начать», затем печатайте текст выше.')}</span
         >${sessionKind === 'retraining'
-          ? '<button class="secondary" data-action="mark-finger" aria-keyshortcuts="F2">Нажал другим пальцем · F2</button>'
-          : ''}<button class="text-button" data-action="pause" id="pause-button">Начать →</button>
+          ? html`<button class="secondary" data-action="mark-finger" aria-keyshortcuts="F2">
+              ${t('Нажал другим пальцем · F2')}
+            </button>`
+          : ''}<button class="text-button" data-action="pause" id="pause-button">
+          ${t('Начать →')}
+        </button>
       </div>
       <div id="pause-cover"></div>
     </section>`;
@@ -695,15 +736,16 @@ function retrainingSetupMarkup() {
   const keys = data.retrainingKeys[languageId] || [];
   const homes = [0, 1, 2, 3, 6, 7, 8, 9].map((col) => language().rows[2][col]);
   return html`<section class="practice-form retraining-setup">
-      <h2>Переучиваюсь</h2>
+      <h2>${t('Переучиваюсь')}</h2>
       <p>
-        Выберите до 8 проблемных клавиш на клавиатуре ниже. Каждая кнопка показывает назначенные
-        руку и палец; повторное нажатие снимает выбор. Для каждой клавиши упражнение добавит
-        возвращение в исходную позицию.
+        ${t(
+          'Выберите до 8 проблемных клавиш на клавиатуре ниже. Каждая кнопка показывает назначенные руку и палец; повторное нажатие снимает выбор. Для каждой клавиши упражнение добавит возвращение в исходную позицию.',
+        )}
       </p>
       <p class="form-note">
-        Браузер не видит, каким пальцем вы нажали клавишу. Отмечайте привычное движение сами кнопкой
-        или клавишей F2 во время набора.
+        ${t(
+          'Браузер не видит, каким пальцем вы нажали клавишу. Отмечайте привычное движение сами кнопкой или клавишей F2 во время набора.',
+        )}
       </p>
       <div id="retraining-selection" aria-live="polite">
         ${keys.length
@@ -712,18 +754,20 @@ function retrainingSetupMarkup() {
                 .map((key) => {
                   const finger = keyInfo(language(), key).finger;
                   return html`<li>
-                    <strong>${esc(key.toUpperCase())}</strong> · ${esc(fingers[finger])} · исходная
-                    ${esc(homes[finger].toUpperCase())}
+                    <strong>${esc(keyCap(language(), key))}</strong> · ${esc(t(fingers[finger]))}
+                    ${t('· исходная')} ${esc(keyCap(language(), homes[finger]))}
                   </li>`;
                 })
                 .join('')}
             </ul>`
-          : '<p>Пока не выбрана ни одна клавиша.</p>'}
+          : html`<p>${t('Пока не выбрана ни одна клавиша.')}</p>`}
       </div>
       <button class="primary" data-action="start-retraining" ${keys.length ? '' : 'disabled'}>
-        Начать короткое упражнение →
+        ${t('Начать короткое упражнение →')}
       </button>
-      <button class="text-button" data-action="retraining-close">Другие виды практики</button>
+      <button class="text-button" data-action="retraining-close">
+        ${t('Другие виды практики')}
+      </button>
     </section>
     ${keyboard()}`;
 }
@@ -735,112 +779,124 @@ function practicePage() {
   const shiftResult = (side) =>
     shifts[side].shown >= 12
       ? `${Math.round((100 * shifts[side].errors) / shifts[side].shown)}% (${shifts[side].errors}/${shifts[side].shown})`
-      : `недостаточно данных (${shifts[side].shown}/12)`;
+      : `${t('недостаточно данных (')}${shifts[side].shown}/12)`;
   return html`<div class="breadcrumb">
-      Практика <span>›</span><span class="current">${esc(language().name)}</span>
+      ${t('Практика')} <span>›</span><span class="current">${esc(language().name)}</span>
     </div>
     <div class="page-heading">
       <div>
-        <p class="eyebrow">В ВАШЕМ ТЕМПЕ</p>
-        <h1>Больше практики, меньше ошибок</h1>
+        <p class="eyebrow">${t('В ВАШЕМ ТЕМПЕ')}</p>
+        <h1>${t('Больше практики, меньше ошибок')}</h1>
       </div>
-      <button class="secondary" data-action="add-language">+ Добавить язык</button>
+      <button class="secondary" data-action="add-language">${t('+ Добавить язык')}</button>
     </div>
     <p class="subtitle">
-      Повторите изученные клавиши, выберите палец или руку либо потренируйтесь на своём тексте.
+      ${t(
+        'Повторите изученные клавиши, выберите палец или руку либо потренируйтесь на своём тексте.',
+      )}
     </p>
     ${session
       ? html`${sessionKind === 'retraining'
-            ? '<p class="form-note">Самопроверка: нажмите F2 сразу после клавиши, которую нажали не тем пальцем. Занятие остановится и предложит повторить сочетание.</p>'
+            ? html`<p class="form-note">
+                ${t(
+                  'Самопроверка: нажмите F2 сразу после клавиши, которую нажали не тем пальцем. Занятие остановится и предложит повторить сочетание.',
+                )}
+              </p>`
             : ''}${trainingMarkup()}${keyboard()}
           <div class="row-actions">
             <button
               class="secondary"
               data-action="${sessionKind === 'retraining' ? 'retraining-open' : 'new-practice'}"
             >
-              ${sessionKind === 'retraining' ? 'Выбрать клавиши' : 'Выбрать другой текст'}</button
-            ><button class="text-button" data-action="repeat">Начать заново</button>
+              ${sessionKind === 'retraining' ? t('Выбрать клавиши') : t('Выбрать другой текст')}</button
+            ><button class="text-button" data-action="repeat">${t('Начать заново')}</button>
           </div>`
       : retrainingSetup
         ? retrainingSetupMarkup()
         : html`<div class="choice-grid">
               <button class="choice" data-action="practice-sample">
-                <strong>Текст для разминки ↗</strong
-                ><span
-                  >Спокойная практика на
-                  ${esc(language().name === 'English' ? 'английском' : 'выбранном языке')}</span
-                ></button
+                <strong>${t('Текст для разминки ↗')}</strong
+                ><span>${t('Текст для практики ·')} ${esc(language().name)}</span></button
               ><button class="choice" data-action="practice-weak">
-                <strong>Трудные клавиши ↗</strong
-                ><span>По доле ошибок за последние 10 занятий с полной статистикой</span>
+                <strong>${t('Трудные клавиши ↗')}</strong
+                ><span>${t('По доле ошибок за последние 10 занятий с полной статистикой')}</span>
               </button>
               <button class="choice" data-action="retraining-open">
-                <strong>Переучиваюсь ↗</strong
-                ><span>Выберите клавиши и проверяйте, каким пальцем их нажимаете</span>
+                <strong>${t('Переучиваюсь ↗')}</strong
+                ><span>${t('Выберите клавиши и проверяйте, каким пальцем их нажимаете')}</span>
               </button>
             </div>
             <section class="practice-form">
-              <h2>Точечная практика</h2>
+              <h2>${t('Точечная практика')}</h2>
               <p class="form-note">
-                Используются клавиши до выбранного урока включительно. Для повторения укажите тот же
-                seed и тот же выбор. Для трудных клавиш можно повторить точный набор символов.
+                ${t(
+                  'Используются клавиши до выбранного урока включительно. Для повторения укажите тот же seed и тот же выбор. Для трудных клавиш можно повторить точный набор символов.',
+                )}
               </p>
               <form id="exercise-form">
                 <div class="exercise-fields">
                   <label class="field"
-                    >Палец
+                    >${t('Палец')}
                     <select name="finger">
                       ${fingers
                         .map(
                           (name, i) =>
                             html`<option value="${i}">
-                              ${name}${i === 8 ? ' (пробел)' : ''}
+                              ${t(name)}${i === 8 ? t('(пробел)') : ''}
                             </option>`,
                         )
                         .join('')}
                     </select>
                   </label>
                   <label class="field"
-                    >Второй палец
+                    >${t('Второй палец')}
                     <select name="otherFinger">
                       ${fingers
                         .map(
                           (name, i) =>
                             html`<option value="${i}" ${i === 4 ? 'selected' : ''}>
-                              ${name}${i === 8 ? ' (пробел)' : ''}
+                              ${t(name)}${i === 8 ? t('(пробел)') : ''}
                             </option>`,
                         )
                         .join('')}
                     </select>
                   </label>
                   <label class="field"
-                    >Рука
+                    >${t('Рука')}
                     <select name="hand">
-                      <option value="left">Левая</option>
-                      <option value="right">Правая</option>
+                      <option value="left">${t('Левая')}</option>
+                      <option value="right">${t('Правая')}</option>
                     </select>
                   </label>
                   <label class="field"
-                    >Seed для повтора
-                    <input name="seed" maxlength="60" placeholder="Случайный, если пусто" />
+                    >${t('Seed для повтора')}
+                    <input name="seed" maxlength="60" placeholder="${t('Случайный, если пусто')}" />
                   </label>
                   <label class="field"
-                    >Клавиши для точного повтора
-                    <input name="keys" maxlength="20" placeholder="Например: аА " />
+                    >${t('Клавиши для точного повтора')}
+                    <input name="keys" maxlength="20" placeholder="${t('Например: аА')} " />
                   </label>
                 </div>
                 <p id="exercise-error" class="form-error" role="alert"></p>
                 <div class="row-actions">
-                  <button class="secondary" name="mode" value="finger">Выбранный палец</button>
-                  <button class="secondary" name="mode" value="fingers">Чередовать пальцы</button>
-                  <button class="secondary" name="mode" value="hand">Выбранная рука</button>
-                  <button class="secondary" name="mode" value="hands">Чередовать руки</button>
-                  <button class="secondary" name="mode" value="keys">Указанные клавиши</button>
+                  <button class="secondary" name="mode" value="finger">
+                    ${t('Выбранный палец')}
+                  </button>
+                  <button class="secondary" name="mode" value="fingers">
+                    ${t('Чередовать пальцы')}
+                  </button>
+                  <button class="secondary" name="mode" value="hand">${t('Выбранная рука')}</button>
+                  <button class="secondary" name="mode" value="hands">
+                    ${t('Чередовать руки')}
+                  </button>
+                  <button class="secondary" name="mode" value="keys">
+                    ${t('Указанные клавиши')}
+                  </button>
                 </div>
               </form>
             </section>
             <section class="practice-form">
-              <h2>Трудные клавиши</h2>
+              <h2>${t('Трудные клавиши')}</h2>
               <p class="form-note">
                 ${difficult.length
                   ? difficult
@@ -850,32 +906,37 @@ function practicePage() {
                           `${esc(keyLabel(language(), stat.char))}: ${Math.round(stat.rate * 100)}% (${stat.errors}/${stat.shown})`,
                       )
                       .join(' · ')
-                  : 'Пока нет клавиш с высокой долей ошибок.'}
+                  : t('Пока нет клавиш с высокой долей ошибок.')}
                 ${insufficient
-                  ? `Недостаточно данных для ${insufficient} изученных клавиш: нужно не менее 12 предъявлений каждой.`
+                  ? `${t('Недостаточно данных для')} ${insufficient} ${t('изученных клавиш: нужно не менее 12 предъявлений каждой.')}`
                   : ''}
-                Пробел и регистр учитываются отдельно. Символы с левым Shift:
-                ${shiftResult('left')}; с правым Shift: ${shiftResult('right')}. Это ошибки при
-                наборе символов с Shift; нельзя установить, была ли ошибка именно в физической
-                клавише Shift.
+                ${t('Пробел и регистр учитываются отдельно. Символы с левым Shift:')}
+                ${shiftResult('left')}${t('; с правым Shift:')}
+                ${shiftResult('right')}${t(
+                  '. Это ошибки при наборе символов с Shift; нельзя установить, была ли ошибка именно в физической клавише Shift.',
+                )}
               </p>
             </section>
             <form id="practice-form" class="practice-form">
               <label class="field"
-                >Ваш текст<textarea
+                >${t('Ваш текст')}<textarea
                   id="custom-text"
                   maxlength="3000"
-                  placeholder="Вставьте текст, который хотите научиться печатать…"
+                  placeholder="${t('Вставьте текст, который хотите научиться печатать…')}"
                 >
 ${esc(customText)}</textarea
                 >
               </label>
               <p class="form-note">
-                До 3000 символов. Переносы строк будут заменены пробелами. Выберите раскладку
-                ${esc(language().layout)} в операционной системе.
+                ${t(
+                  'До 3000 символов. Переносы строк будут заменены пробелами. Выберите раскладку',
+                )}
+                ${esc(language().layout)} ${t('в операционной системе.')}
               </p>
               <p id="practice-error" class="form-error" role="alert"></p>
-              <button class="primary" type="submit">Начать тренировку <span>→</span></button>
+              <button class="primary" type="submit">
+                ${t('Начать тренировку')} <span>→</span>
+              </button>
             </form>
             ${keyboard()}`}`;
 }
@@ -889,43 +950,43 @@ function progressPage() {
   const comparison = history.filter((h) => comparisonKey(h) === chartGroup).slice(-10),
     best = Math.max(0, ...comparison.map((h) => h.speed));
   return html`<div class="breadcrumb">
-      Мой прогресс <span>›</span><span class="current">${esc(language().name)}</span>
+      ${t('Мой прогресс')} <span>›</span><span class="current">${esc(language().name)}</span>
     </div>
-    <p class="eyebrow">КАЖДОЕ НАЖАТИЕ — ШАГ ВПЕРЁД</p>
-    <h1>Ваш ритм становится увереннее</h1>
-    <p class="subtitle">Результаты завершённых занятий для выбранного языка.</p>
+    <p class="eyebrow">${t('КАЖДОЕ НАЖАТИЕ — ШАГ ВПЕРЁД')}</p>
+    <h1>${t('Ваш ритм становится увереннее')}</h1>
+    <p class="subtitle">${t('Результаты завершённых занятий для выбранного языка.')}</p>
     <p class="progress-explainer">
-      «Выполнено» — одна попытка с точностью от 95%. «Закреплено» — повторная попытка от 95% без
-      подсказок в другой календарный день. Старые выполненные уроки сохранены; если у старой попытки
-      нет даты или данных о подсказках, для закрепления нужны две новые проверки в разные дни.
-      Пороги — ориентиры курса.
+      ${t(
+        '«Выполнено» — одна попытка с точностью от 95%. «Закреплено» — повторная попытка от 95% без подсказок в другой календарный день. Старые выполненные уроки сохранены; если у старой попытки нет даты или данных о подсказках, для закрепления нужны две новые проверки в разные дни. Пороги — ориентиры курса.',
+      )}
     </p>
     <div class="progress-cards">
       <div class="progress-card">
-        <span>Выполнено</span><b>${passed} <small>/ ${lessons().length}</small></b
-        ><small>Точность от 95%</small>
+        <span>${t('Выполнено')}</span><b>${passed} <small>/ ${lessons().length}</small></b
+        ><small>${t('Точность от 95%')}</small>
       </div>
       <div class="progress-card">
-        <span>Закреплено</span><b>${secured} <small>/ ${lessons().length}</small></b
-        ><small>Повтор без подсказок в другой день</small>
+        <span>${t('Закреплено')}</span><b>${secured} <small>/ ${lessons().length}</small></b
+        ><small>${t('Повтор без подсказок в другой день')}</small>
       </div>
       <div class="progress-card">
-        <span>Время практики</span><b>${Math.round(total / 60000)} <small>мин</small></b
-        ><small>${history.length} завершённых занятий</small>
+        <span>${t('Время практики')}</span
+        ><b>${Math.round(total / 60000)} <small>${t('мин')}</small></b
+        ><small>${history.length} ${t('завершённых занятий')}</small>
       </div>
     </div>
     <section class="history-card">
-      <h2>История занятий</h2>
+      <h2>${t('История занятий')}</h2>
       ${history.length
         ? html`${groups.length
               ? html`<label class="field chart-picker"
-                  >Сравнение скорости
+                  >${t('Сравнение скорости')}
                   <select id="chart-group">
                     ${groups
                       .map((key) => {
                         const [id, exercise, flags] = key.split(':');
                         return html`<option value="${key}" ${key === chartGroup ? 'selected' : ''}>
-                          Урок ${Number(id) + 1} · текст ${exercise.slice(-4)} ·
+                          ${t('Урок')} ${Number(id) + 1} ${t('· текст')} ${exercise.slice(-4)} ·
                           ${helpLabel(Number(flags))}
                         </option>`;
                       })
@@ -937,9 +998,9 @@ function progressPage() {
               ? html`<div
                   class="history-chart"
                   role="img"
-                  aria-label="Скорость сопоставимых занятий: ${comparison
+                  aria-label="${t('Скорость сопоставимых занятий:')} ${comparison
                     .map((h) => h.speed)
-                    .join(', ')} знаков в минуту"
+                    .join(', ')} ${t('знаков в минуту')}"
                 >
                   ${comparison
                     .map(
@@ -953,21 +1014,26 @@ function progressPage() {
                     )
                     .join('')}
                 </div>`
-              : '<p class="form-note">Для сравнения скорости завершите урок. Старые занятия без сведений о подсказках и тексте не включены в график.</p>'}
+              : html`<p class="form-note">
+                  ${t(
+                    'Для сравнения скорости завершите урок. Старые занятия без сведений о подсказках и тексте не включены в график.',
+                  )}
+                </p>`}
             <p class="chart-caption">
-              Последние 10 попыток одного текста урока с одинаковым режимом подсказок · знаков в
-              минуту. Разные упражнения и условия помощи не смешиваются.
+              ${t(
+                'Последние 10 попыток одного текста урока с одинаковым режимом подсказок · знаков в минуту. Разные упражнения и условия помощи не смешиваются.',
+              )}
             </p>
             <div style="overflow:auto">
               <table class="history-table">
                 <thead>
                   <tr>
-                    <th>Дата</th>
-                    <th>Занятие</th>
-                    <th>Скорость</th>
-                    <th>Точность</th>
-                    <th>Подсказки</th>
-                    <th>Другим пальцем</th>
+                    <th>${t('Дата')}</th>
+                    <th>${t('Занятие')}</th>
+                    <th>${t('Скорость')}</th>
+                    <th>${t('Точность')}</th>
+                    <th>${t('Подсказки')}</th>
+                    <th>${t('Другим пальцем')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -978,13 +1044,19 @@ function progressPage() {
                       (h) =>
                         html`<tr>
                           <td>
-                            ${new Intl.DateTimeFormat('ru', {
+                            ${new Intl.DateTimeFormat(getLocale(), {
                               day: '2-digit',
                               month: 'short',
                             }).format(new Date(h.date))}
                           </td>
-                          <td>${esc(h.title)}</td>
-                          <td>${h.speed} зн/мин</td>
+                          <td>
+                            ${esc(
+                              h.kind === 'lesson'
+                                ? lessonsFor(language())[h.lesson].title
+                                : h.title,
+                            )}
+                          </td>
+                          <td>${h.speed} ${t('зн/мин')}</td>
                           <td style="color:${h.accuracy >= 95 ? '#509c87' : '#bf8b64'}">
                             ${h.accuracy}%
                           </td>
@@ -992,14 +1064,14 @@ function progressPage() {
                             ${h.helpFlags !== undefined
                               ? helpLabel(h.helpFlags)
                               : h.hintsUsed === undefined
-                                ? 'Нет данных'
+                                ? t('Нет данных')
                                 : h.hintsUsed
-                                  ? 'Да'
-                                  : 'Нет'}
+                                  ? t('Да')
+                                  : t('Нет')}
                           </td>
                           <td>
                             ${h.kind !== 'retraining' || h.fingerMarks === undefined
-                              ? 'Нет данных'
+                              ? t('Нет данных')
                               : Object.values(h.fingerMarks).reduce((sum, n) => sum + n, 0)}
                           </td>
                         </tr>`,
@@ -1010,22 +1082,27 @@ function progressPage() {
             </div>`
         : html`<div class="empty-state">
             <span class="result-icon">⌁</span>
-            <h2>Здесь появится ваша история</h2>
-            <p>Завершите первый урок — сохраним точность, скорость и трудные клавиши.</p>
-            <button class="primary" data-action="go-learn">Перейти к урокам →</button>
+            <h2>${t('Здесь появится ваша история')}</h2>
+            <p>${t('Завершите первый урок — сохраним точность, скорость и трудные клавиши.')}</p>
+            <button class="primary" data-action="go-learn">${t('Перейти к урокам →')}</button>
           </div>`}
     </section>
     <div class="row-actions">
-      <button class="secondary" data-action="profile">Профиль и перенос данных</button
-      ><button class="text-button" data-action="reset-progress">Сбросить историю</button>
+      <button class="secondary" data-action="profile">${t('Профиль и перенос данных')}</button
+      ><button class="text-button" data-action="reset-progress">${t('Сбросить историю')}</button>
     </div>
     <p class="form-note">
-      Данные хранятся только в этом браузере. Чтобы продолжить в другом браузере, скачайте файл
-      профиля и примените его там.
+      ${t(
+        'Данные хранятся только в этом браузере. Чтобы продолжить в другом браузере, скачайте файл профиля и примените его там.',
+      )}
     </p>
-    ${storageAvailable ? '' : '<p class="storage-note">Сохранение в браузере недоступно.</p>'}`;
+    ${storageAvailable
+      ? ''
+      : html`<p class="storage-note">${t('Сохранение в браузере недоступно.')}</p>`}`;
 }
 function render() {
+  translateDocument();
+  $('#interface-language').value = data.uiLanguage;
   sidebar();
   $('#main').innerHTML =
     view === 'learn' ? learnPage() : view === 'practice' ? practicePage() : progressPage();
@@ -1103,7 +1180,7 @@ function renderTyping(handOptions = {}) {
     )
       box.scrollTop = cursor.offsetTop - 40;
   }
-  $('#typing-count').textContent = `${session.position} / ${session.text.length} символов`;
+  $('#typing-count').textContent = `${session.position} / ${session.text.length} ${t('символов')}`;
   $('#live-accuracy').textContent = `${session.accuracy()}%`;
   if ($('#live-finger-marks'))
     $('#live-finger-marks').textContent = Object.values(session.fingerMarks).reduce(
@@ -1112,46 +1189,50 @@ function renderTyping(handOptions = {}) {
     );
   $('#pause-button').textContent =
     session.status === 'running'
-      ? 'Пауза · Esc'
+      ? t('Пауза · Esc')
       : session.status === 'ready'
-        ? 'Начать →'
+        ? t('Начать →')
         : session.retry
-          ? 'Повторить сочетание →'
+          ? t('Повторить сочетание →')
           : session.status === 'done'
-            ? 'Повторить →'
-            : 'Продолжить →';
+            ? t('Повторить →')
+            : t('Продолжить →');
   let feedback = session.wrong
-    ? 'Ошибка. Нажмите Backspace и попробуйте ещё раз.'
+    ? t('Ошибка. Нажмите Backspace и попробуйте ещё раз.')
     : session.retry
-      ? `Отметили «${session.retry.key.toUpperCase()}»: проверьте исходную позицию и повторите «${session.retry.combo.toUpperCase()}».`
+      ? `${t('Отметили «')}${keyCap(language(), session.retry.key)}${t('»: проверьте исходную позицию и повторите «')}${keyCap(language(), session.retry.combo)}».`
       : session.status === 'running'
-        ? 'Печатайте в своём темпе. Смотрите на экран.'
+        ? t('Печатайте в своём темпе. Смотрите на экран.')
         : session.status === 'paused'
-          ? 'Пауза. Время остановлено.'
-          : 'Нажмите «Начать», затем печатайте текст выше.';
+          ? t('Пауза. Время остановлено.')
+          : t('Нажмите «Начать», затем печатайте текст выше.');
   if (session.wrong && /[a-z]/i.test(session.lastWrong || '') && languageId === 'ru')
-    feedback += ' Проверьте русскую раскладку.';
+    feedback += ' ' + t('Проверьте русскую раскладку.');
   if (session.wrong && /[а-яё]/i.test(session.lastWrong || '') && languageId === 'en')
-    feedback += ' Проверьте английскую раскладку.';
+    feedback += ' ' + t('Проверьте английскую раскладку.');
   $('#typing-feedback').textContent = feedback;
   $('#typing-feedback').parentElement.classList.toggle('error', session.wrong);
-  const homeKeys = homePosition(language()).toUpperCase().split(' ');
+  const homeKeys = keyCap(language(), homePosition(language())).split(' ');
   $('#pause-cover').innerHTML =
     session.status === 'paused'
       ? session.retry
         ? html`<div class="pause-cover" role="status">
-            <strong>Вернитесь в исходную позицию</strong
+            <strong>${t('Вернитесь в исходную позицию')}</strong
             ><span
-              >Левая рука: ${esc(homeKeys.slice(0, 4).join(' '))} · Правая рука:
+              >${t('Левая рука:')} ${esc(homeKeys.slice(0, 4).join(' '))} ${t('· Правая рука:')}
               ${esc(homeKeys.slice(4).join(' '))}</span
             ><span
-              >Клавиша ${esc(session.retry.key.toUpperCase())}:
-              ${esc(fingers[keyInfo(language(), session.retry.key).finger])}</span
+              >${t('Клавиша')} ${esc(keyCap(language(), session.retry.key))}:
+              ${esc(t(fingers[keyInfo(language(), session.retry.key).finger]))}</span
             ><span
-              >Повторите сочетание: <strong>${esc(session.retry.combo.toUpperCase())}</strong></span
-            ><button class="primary" data-action="pause">Повторить сочетание →</button>
+              >${t('Повторите сочетание:')}
+              <strong>${esc(keyCap(language(), session.retry.combo))}</strong></span
+            ><button class="primary" data-action="pause">${t('Повторить сочетание →')}</button>
           </div>`
-        : '<div class="pause-cover"><strong>Небольшая пауза</strong><button class="primary" data-action="pause">Продолжить →</button></div>'
+        : html`<div class="pause-cover">
+            <strong>${t('Небольшая пауза')}</strong
+            ><button class="primary" data-action="pause">${t('Продолжить →')}</button>
+          </div>`
       : '';
   updateClock();
   updateKeyboard(handOptions);
@@ -1190,23 +1271,25 @@ function updateKeyboard(handOptions = {}) {
       info && level === 'full'
         ? html`<span class="hint-symbol">→</span>
             <strong
-              >${esc(expected === ' ' ? 'Пробел' : expected?.toUpperCase() || '')} ·
-              ${fingers[info.finger]}</strong
-            >${info.shift ? ` + ${info.finger < 4 ? 'правый' : 'левый'} Shift` : ''}`
+              >${esc(expected === ' ' ? t('Пробел') : keyCap(language(), expected || '') || '')} ·
+              ${t(fingers[info.finger])}</strong
+            >${info.deadKey
+              ? html` ${t('· Сначала')} ${esc(info.deadKey)}${t(', затем буква')}`
+              : ''}${info.shift ? ` + ${info.finger < 4 ? t('правый') : t('левый')} Shift` : ''}`
         : info && level === 'key'
-          ? 'Следующая клавиша выделена на схеме.'
+          ? t('Следующая клавиша выделена на схеме.')
           : level === 'none'
-            ? 'Найдите следующую клавишу по памяти.'
-            : 'Каждому пальцу — своя зона.';
+            ? t('Найдите следующую клавишу по памяти.')
+            : t('Каждому пальцу — своя зона.');
   if ($('#hint-explanation'))
     $('#hint-explanation').textContent =
       data.settings.hintMode === 'auto'
         ? level === 'full'
-          ? 'Авто: показаны клавиша и палец. После 25% уроков останется только клавиша.'
+          ? t('Авто: показаны клавиша и палец. После 25% уроков останется только клавиша.')
           : level === 'key'
-            ? 'Авто: показана клавиша. После 50% уроков подсказки исчезнут.'
-            : 'Авто: подсказки скрыты. Их можно вернуть в меню выше.'
-        : 'После нажатия возвращайтесь на основной ряд';
+            ? t('Авто: показана клавиша. После 50% уроков подсказки исчезнут.')
+            : t('Авто: подсказки скрыты. Их можно вернуть в меню выше.')
+        : t('После нажатия возвращайтесь на основной ряд');
   updateHandOverlay(level === 'full' ? info : null, expected, handOptions);
 }
 function updateHandOverlay(info, expected, options) {
@@ -1241,8 +1324,8 @@ function updateHandOverlay(info, expected, options) {
   svg.setAttribute(
     'aria-label',
     info
-      ? `Положение рук: ${expected === ' ' ? 'пробел' : expected}, ${fingers[info.finger]}${info.shift ? `, ${info.finger < 4 ? 'правый' : 'левый'} Shift` : ''}`
-      : 'Исходная позиция обеих рук над клавиатурой',
+      ? `${t('Положение рук:')} ${expected === ' ' ? t('пробел') : expected}, ${t(fingers[info.finger])}${info.shift ? `, ${info.finger < 4 ? t('правый') : t('левый')} Shift` : ''}`
+      : t('Исходная позиция обеих рук над клавиатурой'),
   );
   const target = info
     ? info.row === 4
@@ -1350,6 +1433,7 @@ window.addEventListener('resize', () => {
 });
 function bindInput() {
   const input = $('#typing-input');
+  let deadKeyPending = false;
   const focus = () => {
     if (session.status === 'running') input.focus({ preventScroll: true });
   };
@@ -1366,10 +1450,12 @@ function bindInput() {
   });
   input.addEventListener('paste', (e) => {
     e.preventDefault();
-    toast('В упражнении текст нужно набрать вручную.');
+    toast(t('В упражнении текст нужно набрать вручную.'));
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      deadKeyPending = false;
+      input.value = '';
       e.preventDefault();
       togglePause();
       return;
@@ -1377,6 +1463,10 @@ function bindInput() {
     if (session.status !== 'running') return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Backspace') {
+      if (deadKeyPending) {
+        deadKeyPending = false;
+        return;
+      }
       e.preventDefault();
       session.backspace();
       renderTyping();
@@ -1386,7 +1476,11 @@ function bindInput() {
       e.preventDefault();
       return;
     }
-    if (e.key.length === 1 && !e.isComposing) {
+    if (e.key === 'Dead') {
+      deadKeyPending = true;
+      return;
+    }
+    if (e.key.length === 1 && !e.isComposing && !deadKeyPending) {
       e.preventDefault();
       if (e.repeat) return;
       processChar(e.key);
@@ -1394,13 +1488,15 @@ function bindInput() {
   });
   input.addEventListener('input', (e) => {
     if (!e.isComposing) {
-      const chars = Array.from(input.value);
+      deadKeyPending = false;
+      const chars = Array.from(input.value.normalize('NFC'));
       input.value = '';
       for (const c of chars) processChar(c);
     }
   });
   input.addEventListener('compositionend', () => {
-    const chars = Array.from(input.value);
+    deadKeyPending = false;
+    const chars = Array.from(input.value.normalize('NFC'));
     input.value = '';
     for (const c of chars) processChar(c);
   });
@@ -1430,8 +1526,8 @@ function markWrongFinger() {
   if (!marked) {
     toast(
       session.wrong
-        ? 'Сначала исправьте опечатку клавишей Backspace.'
-        : 'Сначала напечатайте клавишу.',
+        ? t('Сначала исправьте опечатку клавишей Backspace.')
+        : t('Сначала напечатайте клавишу.'),
     );
     return;
   }
@@ -1585,59 +1681,61 @@ function finish() {
     next = sessionKind === 'lesson' && lessonIndex < lessons().length - 1;
   const nextAction =
     !passed || weak.length || fingerMarkCount
-      ? ['repeat', 'Повторить движение →']
+      ? ['repeat', t('Повторить движение →')]
       : result.hintsUsed
-        ? ['repeat-no-hints', 'Попробовать без подсказок →']
+        ? ['repeat-no-hints', t('Попробовать без подсказок →')]
         : next
-          ? ['next', 'Следующий урок →']
-          : ['repeat', 'Повторить движение →'];
+          ? ['next', t('Следующий урок →')]
+          : ['repeat', t('Повторить движение →')];
   modal(
     html`<div class="result-icon">${passed ? '✦' : '⌁'}</div>
       <h1 class="result-heading">
         ${sessionKind === 'retraining'
-          ? 'Короткая тренировка завершена'
+          ? t('Короткая тренировка завершена')
           : passed
-            ? 'Отлично, ритм найден!'
-            : 'Уже ближе к уверенной печати'}
+            ? t('Отлично, ритм найден!')
+            : t('Уже ближе к уверенной печати')}
       </h1>
       <p class="dialog-subtitle" style="text-align:center">
         ${sessionKind === 'lesson'
           ? passed
             ? mastered(result.lesson)
-              ? 'Урок закреплён. Самостоятельная проверка в другой день пройдена.'
-              : `Урок выполнен. ${reinforcementHint(result.lesson)}`
-            : 'Для прохождения урока нужна точность от 95%. Попробуйте ещё раз без спешки.'
-          : 'Тренировка завершена. Результат сохранён.'}
+              ? t('Урок закреплён. Самостоятельная проверка в другой день пройдена.')
+              : `${t('Урок выполнен.')} ${reinforcementHint(result.lesson)}`
+            : t('Для прохождения урока нужна точность от 95%. Попробуйте ещё раз без спешки.')
+          : t('Тренировка завершена. Результат сохранён.')}
       </p>
       <div class="result-stats">
-        <div><b>${result.accuracy}%</b><span>точность</span></div>
-        <div><b>${result.speed}</b><span>знаков / мин</span></div>
-        <div><b>${Math.round(result.duration / 1000)} с</b><span>активное время</span></div>
+        <div><b>${result.accuracy}%</b><span>${t('точность')}</span></div>
+        <div><b>${result.speed}</b><span>${t('знаков / мин')}</span></div>
+        <div>
+          <b>${Math.round(result.duration / 1000)} ${t('с')}</b><span>${t('активное время')}</span>
+        </div>
         ${sessionKind === 'retraining'
-          ? html`<div><b>${fingerMarkCount}</b><span>отметок другого пальца</span></div>`
+          ? html`<div><b>${fingerMarkCount}</b><span>${t('отметок другого пальца')}</span></div>`
           : ''}
       </div>
       <p class="dialog-subtitle" style="text-align:center">
-        Подсказки:
+        ${t('Подсказки:')}
         ${helpLabel(result.helpFlags)}${sessionKind === 'retraining'
-          ? ` · Отметки другого пальца: ${fingerMarkCount}`
+          ? ` ${t('· Отметки другого пальца:')} ${fingerMarkCount}`
           : ''}
       </p>
       <div class="result-note">
         ${weak.length
-          ? html`Больше всего ошибок на клавишах:
+          ? html`${t('Больше всего ошибок на клавишах:')}
               <strong
                 >${weak
-                  .map(([c, n]) => `${esc(c === ' ' ? 'пробел' : c)} (${n})`)
+                  .map(([c, n]) => `${esc(c === ' ' ? t('пробел') : c)} (${n})`)
                   .join(', ')}</strong
               >.`
           : sessionKind === 'retraining' && fingerMarkCount
-            ? 'Опечаток нет. Отмеченные движения пальцев можно повторить в следующем упражнении.'
-            : 'Ни одной ошибки. Сохраните этот спокойный темп в следующем упражнении.'}<br />Скорость:
-        правильно набранные символы ÷ активное время в минутах. Точность учитывает все попытки,
-        включая исправленные ошибки.
+            ? t('Опечаток нет. Отмеченные движения пальцев можно повторить в следующем упражнении.')
+            : t('Ни одной ошибки. Сохраните этот спокойный темп в следующем упражнении.')}<br />${t(
+          'Скорость: правильно набранные символы ÷ активное время в минутах. Точность учитывает все попытки, включая исправленные ошибки.',
+        )}
         ${sessionKind === 'retraining'
-          ? 'Отметки другого пальца сохранены отдельно и не снижают точность.'
+          ? t('Отметки другого пальца сохранены отдельно и не снижают точность.')
           : ''}
       </div>
       <div class="result-actions">
@@ -1646,12 +1744,12 @@ function finish() {
   );
 }
 function normalizeText(t) {
-  return t.replace(/\s+/g, ' ').trim();
+  return t.normalize('NFC').replace(/\s+/g, ' ').trim();
 }
-function validateText(t) {
-  const bad = [...new Set(Array.from(t).filter((c) => !keyInfo(language(), c)))];
+function validateText(text) {
+  const bad = [...new Set(Array.from(text).filter((c) => !keyInfo(language(), c)))];
   return bad.length
-    ? `В выбранной раскладке нет символов: ${bad.slice(0, 10).join(' ')}. Измените текст или выберите другой язык.`
+    ? `${t('В выбранной раскладке нет символов:')} ${bad.slice(0, 10).join(' ')}${t('. Измените текст или выберите другой язык.')}`
     : '';
 }
 function weakPractice() {
@@ -1670,12 +1768,12 @@ function weakPractice() {
     targets.push(...anchors.slice(0, 3 - targets.length));
   }
   if (!chars.length)
-    toast('Пока недостаточно данных о трудных клавишах. Повторим исходную позицию.');
+    toast(t('Пока недостаточно данных о трудных клавишах. Повторим исходную позицию.'));
   const seed = $('#exercise-form [name="seed"]')?.value.trim() || '';
   const label = targets.map((char) => (char === ' ' ? '␠' : char)).join(' ');
   startGenerated(
     [targets],
-    `${chars.length ? 'Трудные клавиши' : 'Исходная позиция'} [${label}]`,
+    `${chars.length ? t('Трудные клавиши') : t('Исходная позиция')} [${label}]`,
     false,
     seed,
   );
@@ -1700,21 +1798,22 @@ function startGenerated(groups, title, gradual = false, seed = '', type = 'weak'
 }
 function addLanguage() {
   modal(
-    html`<p class="eyebrow">НОВАЯ РАСКЛАДКА</p>
-      <h2>Добавить язык</h2>
+    html`<p class="eyebrow">${t('НОВАЯ РАСКЛАДКА')}</p>
+      <h2>${t('Добавить язык')}</h2>
       <p class="dialog-subtitle">
-        Для клавиатуры с тремя рядами букв. Создадим восемь уроков: от исходной позиции до вашего
-        текста. Новая раскладка сохранится в этом браузере.
+        ${t(
+          'Для клавиатуры с тремя рядами букв. Создадим восемь уроков: от исходной позиции до вашего текста. Новая раскладка сохранится в этом браузере.',
+        )}
       </p>
       <form id="language-form">
         <label class="field"
-          >Название языка<input
+          >${t('Название языка')}<input
             name="name"
             maxlength="30"
             required
-            placeholder="Например, Deutsch" /></label
+            placeholder="${t('Например, Deutsch')}" /></label
         ><label class="field"
-          >Верхний ряд · 12 клавиш<input
+          >${t('Верхний ряд · 12 клавиш')}<input
             name="top"
             required
             placeholder="qwertzuiopü+"
@@ -1722,7 +1821,7 @@ function addLanguage() {
             maxlength="12"
             spellcheck="false" /></label
         ><label class="field"
-          >Основной ряд · 11 клавиш<input
+          >${t('Основной ряд · 11 клавиш')}<input
             name="home"
             required
             placeholder="asdfghjklöä"
@@ -1730,7 +1829,7 @@ function addLanguage() {
             maxlength="11"
             spellcheck="false" /></label
         ><label class="field"
-          >Нижний ряд · 10 клавиш<input
+          >${t('Нижний ряд · 10 клавиш')}<input
             name="bottom"
             required
             placeholder="yxcvbnm,.-"
@@ -1740,36 +1839,36 @@ function addLanguage() {
         /></label>
         <details>
           <summary style="font-size:12px;color:#788398;cursor:pointer;margin-bottom:15px">
-            Настроить ряд цифр и Shift
+            ${t('Настроить ряд цифр и Shift')}
           </summary>
           <label class="field"
-            >Ряд цифр · 13 клавиш<input
+            >${t('Ряд цифр · 13 клавиш')}<input
               name="numbers"
               minlength="13"
               maxlength="13"
               placeholder="^1234567890ß´"
               spellcheck="false" /></label
           ><label class="field"
-            >Ряд цифр с Shift · 13 символов<input
+            >${t('Ряд цифр с Shift · 13 символов')}<input
               name="numberShift"
               minlength="13"
               maxlength="13"
               placeholder='°!"§$%&amp;/()=?&#96;'
               spellcheck="false" /></label
           ><label class="field"
-            >Верхний ряд с Shift · 12 символов<input
+            >${t('Верхний ряд с Shift · 12 символов')}<input
               name="topShift"
               minlength="12"
               maxlength="12"
               spellcheck="false" /></label
           ><label class="field"
-            >Основной ряд с Shift · 11 символов<input
+            >${t('Основной ряд с Shift · 11 символов')}<input
               name="homeShift"
               minlength="11"
               maxlength="11"
               spellcheck="false" /></label
           ><label class="field"
-            >Нижний ряд с Shift · 10 символов<input
+            >${t('Нижний ряд с Shift · 10 символов')}<input
               name="bottomShift"
               minlength="10"
               maxlength="10"
@@ -1777,27 +1876,27 @@ function addLanguage() {
           /></label>
         </details>
         <label class="field"
-          >Учебный текст<textarea
+          >${t('Учебный текст')}<textarea
             name="text"
             required
             maxlength="1500"
-            placeholder="Текст на новом языке с символами указанной раскладки"
+            placeholder="${t('Текст на новом языке с символами указанной раскладки')}"
           ></textarea>
         </label>
         <p class="form-note">
-          Вводите символы без пробелов, слева направо. Верхний ряд начинается с клавиши под «1»,
-          основной — справа от Caps Lock. По умолчанию ряд цифр английский, Shift превращает буквы в
-          заглавные. Если знаки отличаются, укажите их в дополнительных настройках.
+          ${t(
+            'Вводите символы без пробелов, слева направо. Верхний ряд начинается с клавиши под «1», основной — справа от Caps Lock. По умолчанию ряд цифр английский, Shift превращает буквы в заглавные. Если знаки отличаются, укажите их в дополнительных настройках.',
+          )}
         </p>
         <p class="form-error" id="language-error" role="alert"></p>
-        <button class="primary" type="submit">Добавить и начать →</button>
+        <button class="primary" type="submit">${t('Добавить и начать →')}</button>
       </form>`,
   );
 }
 function analyticsSection() {
   if (!analyticsAvailable())
     return html`<p class="form-note" id="analytics-note">
-      Статистика использования не собирается: в этой версии она не подключена.
+      ${t('Статистика использования не собирается: в этой версии она не подключена.')}
     </p>`;
   return html`<div class="profile-options">
       <label class="check-label"
@@ -1805,14 +1904,13 @@ function analyticsSection() {
           id="profile-analytics"
           type="checkbox"
           ${data.settings.analytics ? 'checked' : ''}
-        />Анонимная статистика использования</label
+        />${t('Анонимная статистика использования')}</label
       >
     </div>
     <p class="form-note" id="analytics-note">
-      Собираем только обезличенные данные: какие уроки начаты и пройдены, точность, скорость, время,
-      выбранные подсказки и режимы практики. Не передаём то, что вы печатаете, свой текст, имя и
-      содержимое файлов; cookie и идентификатор не сохраняются. Отключить можно здесь в любой
-      момент.
+      ${t(
+        'Собираем только обезличенные данные: какие уроки начаты и пройдены, точность, скорость, время, выбранные подсказки и режимы практики. Не передаём то, что вы печатаете, свой текст, имя и содержимое файлов; cookie и идентификатор не сохраняются. Отключить можно здесь в любой момент.',
+      )}
     </p>`;
 }
 function openProfile() {
@@ -1823,26 +1921,27 @@ function openProfile() {
   pendingImport = null;
   importRequest++;
   modal(
-    html`<p class="eyebrow">ВАШ ЛИЧНЫЙ РИТМ</p>
-      <h2>Профиль и перенос данных</h2>
+    html`<p class="eyebrow">${t('ВАШ ЛИЧНЫЙ РИТМ')}</p>
+      <h2>${t('Профиль и перенос данных')}</h2>
       <p class="dialog-subtitle">
-        Профиль, настройки и прогресс хранятся в этом браузере. Файл переноса позволяет продолжить
-        занятия в другом браузере или на другом компьютере.
+        ${t(
+          'Профиль, настройки и прогресс хранятся в этом браузере. Файл переноса позволяет продолжить занятия в другом браузере или на другом компьютере.',
+        )}
       </p>
       <form id="profile-form">
         <label class="field"
-          >Ваше имя<input
+          >${t('Ваше имя')}<input
             id="profile-name"
             maxlength="40"
             value="${esc(data.profile.name)}"
-            placeholder="Как к вам обращаться?"
+            placeholder="${t('Как к вам обращаться?')}"
             autocomplete="nickname"
         /></label>
         <div class="profile-options">
           ${[
-            ['colors', 'Цветные зоны пальцев'],
-            ['letters', 'Буквы на клавишах'],
-            ['hands', 'Показать руки над клавиатурой'],
+            ['colors', t('Цветные зоны пальцев')],
+            ['letters', t('Буквы на клавишах')],
+            ['hands', t('Показать руки над клавиатурой')],
           ]
             .map(
               ([key, label]) =>
@@ -1856,12 +1955,12 @@ function openProfile() {
             )
             .join('')}
           <label class="check-label" for="profile-hint-mode"
-            >Подсказки движения
+            >${t('Подсказки движения')}
             <select id="profile-hint-mode">
               ${[
-                ['auto', 'Авто'],
-                ['always', 'Всегда'],
-                ['off', 'Выкл.'],
+                ['auto', t('Авто')],
+                ['always', t('Всегда')],
+                ['off', t('Выкл.')],
               ]
                 .map(
                   ([value, label]) =>
@@ -1878,25 +1977,27 @@ function openProfile() {
         </div>
         ${analyticsSection()}
         <p id="profile-save-state" class="form-note" role="status">
-          Изменения сохраняются автоматически.
+          ${t('Изменения сохраняются автоматически.')}
         </p>
       </form>
       <section class="transfer-section">
-        <h3>Перенести в другой браузер</h3>
+        <h3>${t('Перенести в другой браузер')}</h3>
         <p class="form-note">
-          1. Скачайте файл здесь. 2. Откройте Ритм в новом браузере. 3. Выберите этот файл и нажмите
-          «Применить файл».
+          ${t(
+            '1. Скачайте файл здесь. 2. Откройте Ритм в новом браузере. 3. Выберите этот файл и нажмите «Применить файл».',
+          )}
         </p>
-        <button class="secondary" data-action="export">Скачать файл профиля</button
+        <button class="secondary" data-action="export">${t('Скачать файл профиля')}</button
         ><label class="field import-field"
-          >Применить файл из другого браузера<input
+          >${t('Применить файл из другого браузера')}<input
             id="import-file"
             type="file"
             accept=".json,application/json"
         /></label>
         <p class="form-note">
-          В файле: имя, настройки подсказок, выбранные языки и уроки, прогресс, история и
-          добавленные раскладки. Файл читается прямо в браузере.
+          ${t(
+            'В файле: имя, настройки подсказок, выбранные языки и уроки, прогресс, история и добавленные раскладки. Файл читается прямо в браузере.',
+          )}
         </p>
         <p id="import-error" class="form-error" role="alert"></p>
         <div id="import-preview"></div>
@@ -1935,10 +2036,10 @@ function saveProfileInputs() {
   $('.keyboard')?.classList.toggle('no-letters', !data.settings.letters);
   updateKeyboard();
   $('#profile-save-state').textContent = save()
-    ? 'Сохранено в этом браузере.'
-    : 'Сохранение недоступно. Можно скачать файл профиля.';
-  $('#profile-label').textContent = data.profile.name || 'Мой профиль';
-  $('#profile-avatar').textContent = Array.from(data.profile.name || 'Я')[0].toUpperCase();
+    ? t('Сохранено в этом браузере.')
+    : t('Сохранение недоступно. Можно скачать файл профиля.');
+  $('#profile-label').textContent = data.profile.name || t('Мой профиль');
+  $('#profile-avatar').textContent = Array.from(data.profile.name || t('Я'))[0].toUpperCase();
 }
 function exportProfile() {
   try {
@@ -1953,7 +2054,7 @@ function exportProfile() {
     track('profile_exported');
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (error) {
-    toast(`Не удалось создать файл: ${error.message}`);
+    toast(`${t('Не удалось создать файл:')} ${error.message}`);
   }
 }
 async function readImport(event) {
@@ -1964,14 +2065,14 @@ async function readImport(event) {
   $('#import-preview').innerHTML = '';
   if (!file) return;
   try {
-    if (file.size > 2 * 1024 * 1024) throw new Error('Файл слишком большой. Максимум — 2 МБ.');
+    if (file.size > 2 * 1024 * 1024) throw new Error(t('Файл слишком большой. Максимум — 2 МБ.'));
     const contents = await file.text();
     if (request !== importRequest || !$('#import-preview')) return;
     let parsed;
     try {
       parsed = JSON.parse(contents);
     } catch {
-      throw new Error('Не удалось прочитать JSON. Выберите файл, скачанный из Ритма.');
+      throw new Error(t('Не удалось прочитать JSON. Выберите файл, скачанный из Ритма.'));
     }
     pendingImport = parseBackup(parsed);
     const passed = Object.values(pendingImport.progress).reduce(
@@ -1984,17 +2085,19 @@ async function readImport(event) {
       0,
     );
     $('#import-preview').innerHTML = html`<div class="import-preview">
-      <h3>Файл готов к применению</h3>
+      <h3>${t('Файл готов к применению')}</h3>
       <p>
-        <strong>${esc(pendingImport.profile.name || 'Профиль без имени')}</strong> · ${passed}
-        выполненных уроков · ${secured} закреплённых · ${pendingImport.history.length} занятий ·
-        ${Object.keys(pendingImport.customLanguages).length} добавленных раскладок
+        <strong>${esc(pendingImport.profile.name || t('Профиль без имени'))}</strong> · ${passed}
+        ${t('выполненных уроков ·')} ${secured} ${t('закреплённых ·')}
+        ${pendingImport.history.length} ${t('занятий ·')}
+        ${Object.keys(pendingImport.customLanguages).length} ${t('добавленных раскладок')}
       </p>
       <p class="form-note">
-        ${esc(file.name)}<br />Заменит профиль, настройки и прогресс в этом браузере. До применения
-        можно скачать текущий профиль.
+        ${esc(file.name)}<br />${t(
+          'Заменит профиль, настройки и прогресс в этом браузере. До применения можно скачать текущий профиль.',
+        )}
       </p>
-      <button class="primary" data-action="apply-import">Применить файл →</button>
+      <button class="primary" data-action="apply-import">${t('Применить файл →')}</button>
     </div>`;
   } catch (error) {
     if (request === importRequest && $('#import-error')) {
@@ -2008,12 +2111,14 @@ function applyImport() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(pendingImport));
   } catch {
-    $('#import-error').textContent =
-      'Не удалось сохранить файл в браузере. Текущие данные не изменены. Проверьте доступ к хранилищу и свободное место.';
+    $('#import-error').textContent = t(
+      'Не удалось сохранить файл в браузере. Текущие данные не изменены. Проверьте доступ к хранилищу и свободное место.',
+    );
     return;
   }
   stopSession();
   data = pendingImport;
+  setLocale(data.uiLanguage);
   pendingImport = null;
   importRequest++;
   storageAvailable = true;
@@ -2027,7 +2132,7 @@ function applyImport() {
   view = 'progress';
   closeModal();
   render();
-  toast('Профиль, настройки и прогресс перенесены.');
+  toast(t('Профиль, настройки и прогресс перенесены.'));
 }
 const actions = {
   'hand-demo': () => {
@@ -2093,11 +2198,11 @@ const actions = {
   'start-retraining': () => {
     const keys = data.retrainingKeys[languageId] || [];
     if (!keys.length) return;
-    startPractice(retrainingDrill(language(), keys), 'Переучиваюсь', 'retraining', 'retraining');
+    startPractice(retrainingDrill(language(), keys), t('Переучиваюсь'), 'retraining', 'retraining');
   },
   'mark-finger': markWrongFinger,
   'practice-sample': () =>
-    startPractice(language().text, 'Текст для разминки', 'practice', 'sample'),
+    startPractice(language().text, t('Текст для разминки'), 'practice', 'sample'),
   'practice-weak': () => {
     closeModal();
     weakPractice();
@@ -2108,7 +2213,16 @@ const actions = {
   'apply-import': applyImport,
   'reset-progress': () =>
     modal(
-      '<h2>Сбросить историю и достижения?</h2><p class="dialog-subtitle">Будут удалены результаты всех языков, состояния «Выполнено» и «Закреплено». Добавленные раскладки останутся. Перед сбросом можно скачать прогресс.</p><div class="row-actions"><button class="secondary" data-action="export">Скачать прогресс</button><button class="primary" data-action="confirm-reset">Удалить результаты</button></div>',
+      html`<h2>${t('Сбросить историю и достижения?')}</h2>
+        <p class="dialog-subtitle">
+          ${t(
+            'Будут удалены результаты всех языков, состояния «Выполнено» и «Закреплено». Добавленные раскладки останутся. Перед сбросом можно скачать прогресс.',
+          )}
+        </p>
+        <div class="row-actions">
+          <button class="secondary" data-action="export">${t('Скачать прогресс')}</button
+          ><button class="primary" data-action="confirm-reset">${t('Удалить результаты')}</button>
+        </div>`,
     ),
   'confirm-reset': () => {
     data.history = [];
@@ -2118,7 +2232,7 @@ const actions = {
     save();
     closeModal();
     render();
-    toast('История занятий сброшена.');
+    toast(t('История занятий сброшена.'));
   },
 };
 document.addEventListener('click', (e) => {
@@ -2160,7 +2274,7 @@ $('#main').addEventListener('click', (e) => {
     const index = selected.indexOf(value);
     if (index >= 0) selected.splice(index, 1);
     else if (selected.length >= 8) {
-      toast('Можно выбрать до 8 клавиш для короткого упражнения.');
+      toast(t('Можно выбрать до 8 клавиш для короткого упражнения.'));
       return;
     } else selected.push(value);
     data.retrainingKeys[languageId] = selected;
@@ -2186,6 +2300,14 @@ $('#main').addEventListener('click', (e) => {
   tab = nextTab;
   render();
 });
+$('#interface-language').addEventListener('change', (e) => {
+  data.uiLanguage = e.target.value;
+  setLocale(data.uiLanguage);
+  if (session?.status === 'running') session.pause();
+  if (sessionKind === 'lesson' && session) sessionTitle = lesson().title;
+  save();
+  render();
+});
 $('#language').addEventListener('change', (e) => {
   stopSession();
   languageId = e.target.value;
@@ -2204,15 +2326,16 @@ $('#help').addEventListener('click', () => {
     renderTyping();
   }
   modal(
-    html`<p class="eyebrow">ПЕЧАТАЙТЕ СПОКОЙНО</p>
-      <h2>Как заниматься с Ритмом</h2>
+    html`<p class="eyebrow">${t('ПЕЧАТАЙТЕ СПОКОЙНО')}</p>
+      <h2>${t('Как заниматься с Ритмом')}</h2>
       <p class="dialog-subtitle">
-        Выбор языка в тренажёре не переключает системную раскладку. Перед началом переключите её в
-        операционной системе.
+        ${t(
+          'Выбор языка в тренажёре не переключает системную раскладку. Перед началом переключите её в операционной системе.',
+        )}
       </p>
       ${hands()}${basics()}
       <div class="row-actions">
-        <button class="secondary" data-action="add-language">+ Добавить язык</button>
+        <button class="secondary" data-action="add-language">${t('+ Добавить язык')}</button>
       </div>`,
   );
 });
@@ -2243,50 +2366,53 @@ document.addEventListener('submit', (e) => {
         groups[0].push(
           ...[...learnedCharacters(lessons(), 0)].filter((char) => char !== ' ').slice(0, 2),
         );
-      title = finger === 8 ? 'Большой палец и опорные клавиши' : fingers[finger];
+      title = finger === 8 ? t('Большой палец и опорные клавиши') : t(fingers[finger]);
       gradual = [0, 1, 6, 7].includes(finger);
     } else if (mode === 'fingers') {
       groups =
         finger === 8
           ? [fingerKeys(language(), learned(), other), [' ']]
           : [fingerKeys(language(), learned(), finger), fingerKeys(language(), learned(), other)];
-      title = `${fingers[finger]} + ${fingers[other]}`;
+      title = `${t(fingers[finger])} + ${t(fingers[other])}`;
       gradual = [0, 1, 6, 7].includes(finger) || [0, 1, 6, 7].includes(other);
     } else if (mode === 'hand') {
       groups = [handKeys(language(), learned(), hand)];
-      title = hand === 'left' ? 'Левая рука' : 'Правая рука';
+      title = hand === 'left' ? t('Левая рука') : t('Правая рука');
     } else if (mode === 'hands') {
       groups = [handKeys(language(), learned(), 'left'), handKeys(language(), learned(), 'right')];
-      title = 'Чередование рук';
+      title = t('Чередование рук');
     } else if (mode === 'keys') {
       if (!keys.some((char) => char !== ' ') || keys.some((char) => !learned().has(char))) {
-        $('#exercise-error').textContent =
-          'Введите изученные клавиши, включая хотя бы одну букву или знак.';
+        $('#exercise-error').textContent = t(
+          'Введите изученные клавиши, включая хотя бы одну букву или знак.',
+        );
         return;
       }
       groups = [keys];
-      title = `Указанные клавиши [${keys.map((char) => (char === ' ' ? '␠' : char)).join(' ')}]`;
+      title = `${t('Указанные клавиши [')}${keys.map((char) => (char === ' ' ? '␠' : char)).join(' ')}]`;
     } else {
       return;
     }
     if (mode === 'fingers' && finger === other) {
-      $('#exercise-error').textContent = 'Выберите два разных пальца.';
+      $('#exercise-error').textContent = t('Выберите два разных пальца.');
       return;
     }
     if (!startGenerated(groups, title, gradual, seed, mode))
-      $('#exercise-error').textContent = 'В выбранном уроке пока нет клавиш для этого упражнения.';
+      $('#exercise-error').textContent = t(
+        'В выбранном уроке пока нет клавиш для этого упражнения.',
+      );
     return;
   }
   if (e.target.id === 'practice-form') {
     e.preventDefault();
     customText = $('#custom-text').value;
-    const t = normalizeText(customText),
-      error = !t ? 'Добавьте текст для практики.' : validateText(t);
+    const text = normalizeText(customText),
+      error = !text ? t('Добавьте текст для практики.') : validateText(text);
     if (error) {
       $('#practice-error').textContent = error;
       return;
     }
-    startPractice(t, 'Свой текст', 'practice', 'custom');
+    startPractice(text, t('Свой текст'), 'practice', 'custom');
   }
   if (e.target.id === 'language-form') {
     e.preventDefault();
@@ -2302,11 +2428,11 @@ document.addEventListener('submit', (e) => {
     const error = (m) => {
       $('#language-error').textContent = m;
     };
-    if (!name || !text) return error('Укажите название и учебный текст.');
+    if (!name || !text) return error(t('Укажите название и учебный текст.'));
     if (rows.some((r, i) => Array.from(r).length !== [13, 12, 11, 10][i] || /\s/.test(r)))
-      return error('Проверьте количество клавиш: 13, 12, 11 и 10, без пробелов.');
+      return error(t('Проверьте количество клавиш: 13, 12, 11 и 10, без пробелов.'));
     if (new Set(Array.from(rows.join(''))).size !== Array.from(rows.join('')).length)
-      return error('Символы клавиш не должны повторяться между рядами.');
+      return error(t('Символы клавиш не должны повторяться между рядами.'));
     const shift = ['numberShift', 'topShift', 'homeShift', 'bottomShift'].map(
       (n, i) =>
         String(form.get(n)).trim() ||
@@ -2317,12 +2443,12 @@ document.addEventListener('submit', (e) => {
               .join('')),
     );
     if (shift.some((r, i) => Array.from(r).length !== [13, 12, 11, 10][i] || /\s/.test(r)))
-      return error('Ряды с Shift должны совпадать по длине с основными рядами.');
+      return error(t('Ряды с Shift должны совпадать по длине с основными рядами.'));
     const l = { name, layout: name, rows, shift, text, custom: true };
     const bad = Array.from(text).filter((c) => !keyInfo(l, c));
     if (bad.length)
       return error(
-        `В тексте есть символы вне раскладки: ${[...new Set(bad)].slice(0, 10).join(' ')}.`,
+        `${t('В тексте есть символы вне раскладки:')} ${[...new Set(bad)].slice(0, 10).join(' ')}.`,
       );
     const id = 'custom-' + Date.now().toString(36);
     languages[id] = l;
@@ -2336,12 +2462,13 @@ document.addEventListener('submit', (e) => {
     save();
     closeModal();
     render();
-    toast('Язык добавлен. Начните с исходной позиции.');
+    toast(t('Язык добавлен. Начните с исходной позиции.'));
   }
 });
 lessonIndex = Math.min(lessonIndex, lessons().length - 1);
 initAnalytics(data.settings);
 window.addEventListener('pagehide', () => reportAbandoned({ beacon: true }));
 render();
-if (loadError) toast('Не удалось прочитать сохранённый профиль. Можно восстановить его из файла.');
+if (loadError)
+  toast(t('Не удалось прочитать сохранённый профиль. Можно восстановить его из файла.'));
 else save();

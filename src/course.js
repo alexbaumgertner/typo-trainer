@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 export const builtinLanguages = {
   ru: {
     name: 'Русский',
@@ -47,6 +48,175 @@ export const builtinLanguages = {
     ],
     text: 'Every skill starts with a small step. Keep your eyes on the screen and let your hands find their way. Practice with care, take a short break, and enjoy the steady rhythm of each new line.',
   },
+  uk: {
+    name: 'Українська',
+    locale: 'uk',
+    layout: 'ЙЦУКЕН · UA',
+    iso: true,
+    rows: ["'1234567890-=", 'йцукенгшщзхї', 'фівапролджє', 'ґячсмитьбю.'],
+    shift: ['~!"№;%:?*()_+', 'ЙЦУКЕНГШЩЗХЇ', 'ФІВАПРОЛДЖЄ', 'ҐЯЧСМИТЬБЮ,'],
+    groups: [
+      'ао',
+      'вл',
+      'ід',
+      'фж',
+      'прє',
+      'дар два вода фара правда',
+      'укгш',
+      'цщен',
+      "йзхї'",
+      'школа ріка урок гора парк поїзд',
+      'мить',
+      'сбчю',
+      'ґя.',
+      '1234567890-=',
+      'А О І Ї',
+    ],
+    capitals: 'Аа Іі Її Єє Ґґ. Лада вдома. Вода в річці. Як справи? Добре!',
+    text: "Кожна справа має свій ритм. Дивіться на екран і друкуйте спокійно. Ґанок біля дому, м'яка тінь і теплий день. Ваші пальці запам'ятають рухи. Точність важливіша за швидкість.",
+  },
+  de: {
+    name: 'Deutsch',
+    locale: 'de',
+    layout: 'QWERTZ · DE',
+    iso: true,
+    rows: ['^1234567890ß´', 'qwertzuiopü+', 'asdfghjklöä#', '<yxcvbnm,.-'],
+    shift: ['°!"§$%&/()=?`', 'QWERTZUIOPÜ*', "ASDFGHJKLÖÄ'", '>YXCVBNM;:_'],
+    groups: [
+      'fj',
+      'dk',
+      'sl',
+      'aö',
+      'ghä#',
+      'das all als glas saal fass',
+      'rtzu',
+      'eiwo',
+      'qpü+',
+      'die frau liest das wort auf der seite',
+      'vbnm',
+      'c,x.',
+      '<y-',
+      '1234567890ß',
+      'A F J Ö',
+    ],
+    capitals: 'Aa Öö Ää Üü. Das ist ein guter Tag. Jörg liest ein Buch. Wie geht es dir? Gut!',
+    text: 'Jeder Schritt braucht Zeit. Übe ruhig und schaue auf den Bildschirm. Die Hände bleiben locker. Draußen ist es schön. Mit jedem Satz wächst dein Gefühl für den Rhythmus.',
+  },
+  tr: {
+    name: 'Türkçe',
+    locale: 'tr',
+    layout: 'Q · TR',
+    iso: true,
+    rows: ['"1234567890*-', 'qwertyuıopğü', 'asdfghjklşi,', '<zxcvbnmöç.'],
+    shift: ["é!'^+%&/()=?_", 'QWERTYUIOPĞÜ', 'ASDFGHJKLŞİ;', '>ZXCVBNMÖÇ:'],
+    groups: [
+      'fj',
+      'dk',
+      'sl',
+      'aş',
+      'ghi,',
+      'şaka laf kal al sal',
+      'rtyu',
+      'eıwo',
+      'qpğü',
+      'iyi işler kolay olur kişi işe gider',
+      'vbnm',
+      'cöxç',
+      '<z.',
+      '1234567890*-',
+      'İ I Ş Ğ',
+    ],
+    capitals: 'İi Iı Şş Ğğ Üü Öö Çç. İpek kitap okur. Işık odaya girer. Bugün güzel bir gün!',
+    text: 'Her iş küçük bir adımla başlar. Ekrana bak ve sakin bir şekilde yaz. Doğru tuşa basmak hızdan önemlidir. Işık, ağaç ve gökyüzü bize ilham verir. Yorulunca kısa bir ara ver.',
+  },
+  fr: {
+    name: 'Français',
+    locale: 'fr',
+    layout: 'AZERTY · FR',
+    iso: true,
+    rows: ['²&é"\'(-è_çà)=', 'azertyuiop^$', 'qsdfghjklmù*', '<wxcvbn,;:!'],
+    shift: ['~1234567890°+', 'AZERTYUIOP¨£', 'QSDFGHJKLM%µ', '>WXCVBN?./§'],
+    compositions: {
+      â: '^a',
+      ê: '^e',
+      î: '^i',
+      ô: '^o',
+      û: '^u',
+      ë: '¨e',
+      ï: '¨i',
+      ü: '¨u',
+      ÿ: '¨y',
+      Â: '^A',
+      Ê: '^E',
+      Î: '^I',
+      Ô: '^O',
+      Û: '^U',
+      Ë: '¨E',
+      Ï: '¨I',
+      Ü: '¨U',
+      Ÿ: '¨Y',
+    },
+    groups: [
+      'fj',
+      'dk',
+      'sl',
+      'qm',
+      'ghù*',
+      'fff jjj ddd kkk sss lll qqq mmm',
+      'rtyu',
+      'ezio',
+      'ap$',
+      'le jour et la fille qui regarde la rue',
+      'vbn,',
+      'c;x:',
+      '<w!',
+      '0123456789éèçà',
+      'A F J M',
+    ],
+    capitals: 'Aa Ff Jj Mm. Le jour se lève. Julie lit un livre. Comment allez-vous? Très bien!',
+    text: "Chaque geste a son rythme. Regardez l'écran et gardez les mains détendues. La forêt est calme et le ciel est bleu. Un peu de pratique chaque jour aide à écrire avec précision.",
+  },
+  es: {
+    name: 'Español',
+    locale: 'es',
+    layout: 'QWERTY · ES',
+    iso: true,
+    rows: ["º1234567890'¡", 'qwertyuiop`+', 'asdfghjklñ´ç', '<zxcvbnm,.-'],
+    shift: ['ª!"·$%&/()=?¿', 'QWERTYUIOP^*', 'ASDFGHJKLÑ¨Ç', '>ZXCVBNM;:_'],
+    compositions: {
+      á: '´a',
+      é: '´e',
+      í: '´i',
+      ó: '´o',
+      ú: '´u',
+      ü: '¨u',
+      Á: '´A',
+      É: '´E',
+      Í: '´I',
+      Ó: '´O',
+      Ú: '´U',
+      Ü: '¨U',
+    },
+    groups: [
+      'fj',
+      'dk',
+      'sl',
+      'añ',
+      'ghç',
+      'ala sala las alas sal',
+      'rtyu',
+      'eiwo',
+      'qp+',
+      'ella quiere leer y salir',
+      'vbnm',
+      'c,x.',
+      '<z-',
+      '1234567890',
+      'A F J Ñ',
+    ],
+    capitals: 'Aa Ññ Áá Éé Íí Óó Úú Üü. Ana lee un libro. ¿Cómo estás? ¡Muy bien!',
+    text: 'Cada día es una nueva oportunidad. Mira la pantalla y escribe con calma. El pequeño pájaro vuela sobre el jardín. La práctica ayuda a mejorar la precisión. Descansa cuando lo necesites.',
+  },
 };
 export const fingers = [
   'Левый мизинец',
@@ -76,16 +246,35 @@ export const zoneRows = [
   [0, 1, 2, 3, 3, 4, 4, 5, 6, 7, 7],
   [0, 1, 2, 3, 3, 4, 4, 5, 6, 7],
 ];
+export function fingerAt(language, row, col) {
+  if (language.iso && row === 3) return col === 0 ? 0 : zoneRows[row][col - 1];
+  return zoneRows[row][col] ?? 7;
+}
+export function keyLabel(language, char) {
+  // Never expand ß to SS; Turkish i and ı have distinct uppercase forms.
+  if (char.length > 1) return Array.from(char, (c) => keyLabel(language, c)).join('');
+  const upper = char.toLocaleUpperCase(language.locale || 'en');
+  return upper.length === 1 && keyInfo(language, upper) ? upper : char;
+}
 export function keyInfo(language, char) {
+  const sequence = language.compositions?.[char];
+  if (sequence) return { ...keyInfo(language, sequence[1]), deadKey: sequence[0] };
   if (char === ' ') return { finger: 8, row: 4, col: 0, shift: false, label: 'Пробел' };
   for (let row = 0; row < 4; row++) {
     let col = Array.from(language.rows[row]).indexOf(char);
-    if (col >= 0) return { finger: zoneRows[row][col], row, col, shift: false, label: char };
+    if (col >= 0)
+      return { finger: fingerAt(language, row, col), row, col, shift: false, label: char };
   }
   for (let row = 0; row < 4; row++) {
     const col = Array.from(language.shift[row] || '').indexOf(char);
     if (col >= 0)
-      return { finger: zoneRows[row][col], row, col, shift: true, label: language.rows[row][col] };
+      return {
+        finger: fingerAt(language, row, col),
+        row,
+        col,
+        shift: true,
+        label: language.rows[row][col],
+      };
   }
   return null;
 }
@@ -180,7 +369,7 @@ export function retrainingDrill(language, keys) {
   return Array.from({ length: keys.length * 2 }, (_, index) => {
     const key = keys[index % keys.length];
     const finger = keyInfo(language, key)?.finger;
-    if (finger === undefined || finger === 8) throw new Error('Неизвестная клавиша упражнения.');
+    if (finger === undefined || finger === 8) throw new Error(t('Неизвестная клавиша упражнения.'));
     const home = homes[finger];
     return home + key + home;
   }).join(' ');
@@ -200,20 +389,22 @@ export function lessonsFor(l) {
     ];
     return groups.map((g, i) => ({
       id: i,
-      title: [
-        'Исходная позиция',
-        'Средние пальцы',
-        'Безымянные пальцы',
-        'Мизинцы',
-        'Основной ряд',
-        'Верхний ряд',
-        'Нижний ряд',
-        'Связный текст',
-      ][i],
+      title: t(
+        [
+          'Исходная позиция',
+          'Средние пальцы',
+          'Безымянные пальцы',
+          'Мизинцы',
+          'Основной ряд',
+          'Верхний ряд',
+          'Нижний ряд',
+          'Связный текст',
+        ][i],
+      ),
       keys: i === 7 ? '' : g,
       text: i === 7 ? l.text : drill(g),
-      focus: focuses[[0, 1, 2, 3, 4, 6, 10, 15][i]],
-      section: i < 5 ? 'ОСНОВА' : i < 7 ? 'ВСЯ КЛАВИАТУРА' : 'ТЕКСТ',
+      focus: t(focuses[[0, 1, 2, 3, 4, 6, 10, 15][i]]),
+      section: t(i < 5 ? 'ОСНОВА' : i < 7 ? 'ВСЯ КЛАВИАТУРА' : 'ТЕКСТ'),
     }));
   }
   return titles.map((title, i) => {
@@ -222,20 +413,21 @@ export function lessonsFor(l) {
     else if ([5, 9].includes(i)) text = (l.groups[i] + ' ' + l.groups[i]).trim();
     else if (i === 14)
       text =
-        l === builtinLanguages.ru
+        l.capitals ||
+        (l === builtinLanguages.ru
           ? 'Аа Оо Фа Жа. Лада дома. Вода в реке, книга на столе. Как дела? Хорошо!'
-          : 'Aa Ff Jj Kk. A good day. Jane reads a book, Fred takes a walk. How are you? Fine!';
+          : 'Aa Ff Jj Kk. A good day. Jane reads a book, Fred takes a walk. How are you? Fine!');
     else {
       text = drill(l.groups[i], i < 5 ? 20 : 24);
       if (i > 0 && i < 5) text += ' ' + drill(l.groups.slice(0, i + 1).join(''), 8);
     }
     return {
       id: i,
-      title,
+      title: t(l === builtinLanguages.fr && i === 5 ? 'Сочетания основного ряда' : title),
       keys: [5, 9, 15].includes(i) ? '' : l.groups[i].replaceAll(' ', ''),
       text,
-      focus: focuses[i],
-      section:
+      focus: t(focuses[i]),
+      section: t(
         i < 6
           ? '01 · ОСНОВНОЙ РЯД'
           : i < 10
@@ -243,6 +435,7 @@ export function lessonsFor(l) {
             : i < 13
               ? '03 · НИЖНИЙ РЯД'
               : '04 · УВЕРЕННАЯ ПЕЧАТЬ',
+      ),
     };
   });
 }

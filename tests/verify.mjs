@@ -72,5 +72,5 @@ retraining.type('q', 1200);
 retraining.type('a', 1300);
 assert.equal(retraining.position, 3);
 console.log(
-  'PASS: 32 lessons use introduced keys; keyboard mapping, corrections, accuracy, pause timing and completion.',
+  'PASS: 112 lessons use introduced keys; keyboard mapping, corrections, accuracy, pause timing and completion.',
 );

@@ -1799,3 +1799,22 @@ dialog::backdrop {
     transition: none !important;
   }
 }
+
+.interface-language {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: #66738c;
+}
+#interface-language {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #dde3ee;
+  border-radius: 8px;
+  background: white;
+  margin-bottom: 20px;
+  font: inherit;
+}
+.keyboard-options {
+  flex-wrap: wrap;
+}

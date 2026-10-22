@@ -1,4 +1,5 @@
-import { fingers, zoneRows } from './course.js';
+import { t } from './i18n.js';
+import { fingers, fingerAt } from './course.js';
 
 // The course can be opened out of order, so reduce help based on mastered lessons.
 export function hintLevel(mode, progress, lessonCount) {
@@ -14,6 +15,6 @@ export function refreshKeyTooltips(keys, language, level) {
   for (const key of keys) {
     const [row, col] = key.dataset.key.split('-').map(Number);
     const char = Array.from(language.rows[row])[col];
-    key.title = `${char}${level === 'full' ? ` · ${fingers[zoneRows[row][col]]}` : ''}`;
+    key.title = `${char}${level === 'full' ? ` · ${t(fingers[fingerAt(language, row, col)])}` : ''}`;
   }
 }
