@@ -12,10 +12,19 @@ const target = { x: 50, y: 50 };
 const ring = handPose(home, target, keyInfo(builtinLanguages.ru, 'ц'), null, thumbs, 50);
 assert.equal(ring.tips[1].x, target.x);
 assert.equal(ring.tips[1].y, target.y + 4);
-assert.ok(ring.palms[0].y < 0, 'The left palm follows the left ring finger.');
+assert.deepEqual(
+  ring.palms[0],
+  { x: 0, y: -50 },
+  'The whole left hand moves to the ring finger key.',
+);
 assert.deepEqual(ring.palms[1], rest.palms[1], 'The other hand stays at home.');
-for (let f = 0; f < 10; f++)
-  if (f !== 1) assert.deepEqual(ring.tips[f], rest.tips[f], 'Other fingers keep their home keys.');
+for (const f of [0, 2, 3, 9])
+  assert.deepEqual(
+    ring.tips[f],
+    { x: rest.tips[f].x + ring.palms[0].x, y: rest.tips[f].y + ring.palms[0].y },
+    'The other fingers and the thumb keep their place relative to the palm.',
+  );
+for (const f of [4, 5, 6, 7, 8]) assert.deepEqual(ring.tips[f], rest.tips[f]);
 const shifted = handPose(
   home,
   target,
@@ -25,7 +34,7 @@ const shifted = handPose(
   50,
 );
 assert.deepEqual(shifted.tips[7], { x: 600, y: 150 }, 'Capital letters use opposite Shift.');
-assert.ok(Math.abs(shifted.palms[1].x) <= 11, 'The wrist reach remains small.');
+assert.deepEqual(shifted.palms[1], { x: 600 - 450, y: 50 }, 'The Shift hand moves as a whole.');
 const space = handPose(home, thumbs[0], keyInfo(builtinLanguages.ru, ' '), null, thumbs, 50);
 assert.equal(space.tips[8].y, thumbs[0].y + 4);
 assert.deepEqual(space.tips[9], thumbs[1], 'Only one thumb presses space.');

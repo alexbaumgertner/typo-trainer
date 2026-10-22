@@ -9,29 +9,30 @@ const blend = (from, to, amount) =>
     ]),
   );
 
-// Keep fingertips over the home keys while the palm follows a small part of the reach.
+// Move the whole hand as one rigid piece: the working finger's home position goes
+// over its key, and the palm and the other fingers (thumb included) travel with it.
 export function handPose(home, target, info, shiftTarget, thumbs, unit) {
+  const rest = [...home, ...thumbs];
   const pose = {
-    tips: [...home, ...thumbs].map((point) => ({ x: point.x, y: point.y })),
+    tips: rest.map((point) => ({ x: point.x, y: point.y })),
     palms: [
       { x: 0, y: 0 },
       { x: 0, y: 0 },
     ],
   };
-  const reach = (finger, point) => {
+  const reach = (finger, point, press = 0) => {
     if (!point) return;
-    const origin = pose.tips[finger];
-    pose.tips[finger] = { x: point.x, y: point.y };
     const side = finger < 4 || finger === 9 ? 0 : 1;
-    const limit = unit * 0.22;
-    pose.palms[side] = {
-      x: Math.max(-limit, Math.min(limit, (point.x - origin.x) * 0.18)),
-      y: Math.max(-limit, Math.min(limit, (point.y - origin.y) * 0.12)),
-    };
+    const dx = point.x - rest[finger].x,
+      dy = point.y - rest[finger].y;
+    pose.palms[side] = { x: dx, y: dy };
+    for (const f of side === 0 ? [0, 1, 2, 3, 9] : [4, 5, 6, 7, 8])
+      pose.tips[f] = { x: rest[f].x + dx, y: rest[f].y + dy };
+    pose.tips[finger].y += press;
   };
   if (info && target) {
-    // A short downward stroke makes home-row and space presses visible too.
-    reach(info.finger, { x: target.x, y: target.y + unit * 0.08 });
+    // A short downward stroke of the finger makes home-row and space presses visible too.
+    reach(info.finger, target, unit * 0.08);
     if (info.shift) reach(info.finger < 4 ? 7 : 0, shiftTarget);
   }
   return pose;
